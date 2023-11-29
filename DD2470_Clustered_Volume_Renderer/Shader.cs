@@ -28,30 +28,31 @@ namespace DD2470_Clustered_Volume_Renderer
             }
         }
 
-        public static Shader CreateVertexFragment(string vertexPath, string fragmentPath)
+        public static Shader CreateVertexFragment(string name, string vertexPath, string fragmentPath)
         {
             string vertexSource = File.ReadAllText(vertexPath);
             string fragmentSource = File.ReadAllText(fragmentPath);
 
-            int vertex = CompileShader(ShaderType.VertexShader, vertexSource);
-            int fragment = CompileShader(ShaderType.FragmentShader, fragmentSource);
+            int vertex = CompileShader($"{name}_vertex", ShaderType.VertexShader, vertexSource);
+            int fragment = CompileShader($"{name}_fragment", ShaderType.FragmentShader, fragmentSource);
 
-            int program = LinkProgram(stackalloc int[2] { vertex, fragment });
+            int program = LinkProgram(name, stackalloc int[2] { vertex, fragment });
 
             return new Shader(program);
         }
 
-        public static Shader CreateCompute(string computeSource)
+        public static Shader CreateCompute(string name, string computeSource)
         {
-            int shader = CompileShader(ShaderType.ComputeShader, computeSource);
-            int program = LinkProgram(stackalloc int[1] { shader });
+            int shader = CompileShader($"{name}_compute", ShaderType.ComputeShader, computeSource);
+            int program = LinkProgram(name, stackalloc int[1] { shader });
 
             return new Shader(program);
         }
 
-        public static int LinkProgram(ReadOnlySpan<int> shaders)
+        public static int LinkProgram(string name, ReadOnlySpan<int> shaders)
         {
             int program = GL.CreateProgram();
+            GL.ObjectLabel(ObjectLabelIdentifier.Program, program, -1, name);
 
             for (int i = 0; i < shaders.Length; i++)
             {
@@ -77,9 +78,10 @@ namespace DD2470_Clustered_Volume_Renderer
             return program;
         }
 
-        public static int CompileShader(ShaderType type, string source)
+        public static int CompileShader(string name, ShaderType type, string source)
         {
             int shader = GL.CreateShader(type);
+            GL.ObjectLabel(ObjectLabelIdentifier.Shader, shader, -1, name);
             
             GL.ShaderSource(shader, source);
 

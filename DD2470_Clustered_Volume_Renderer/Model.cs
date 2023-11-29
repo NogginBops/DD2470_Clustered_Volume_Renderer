@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -7,30 +8,11 @@ using System.Text;
 using System.Threading.Tasks;
 using Assimp;
 using OpenTK.Graphics.ES11;
+using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 
 namespace DD2470_Clustered_Volume_Renderer
 {
-    internal class Transform
-    {
-        public OpenTK.Mathematics.Quaternion Rotation;
-        public Vector3 Position;
-        public Vector3 Scale;
-
-        // FIXME: Parent and child relations...
-
-        public Transform(OpenTK.Mathematics.Quaternion rotation, Vector3 position, Vector3 scale)
-        {
-            Rotation = rotation;
-            Position = position;
-            Scale = scale;
-        }
-
-        public override string ToString()
-        {
-            return $"T: {Position}, R: ({Rotation}), S: {Scale}";
-        }
-    }
 
     internal class Entity
     {
@@ -38,6 +20,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public Transform Transform;
         public Entity? Parent;
         public List<Entity> Children;
+
+        public Mesh? Mesh;
+        public Buffer IndexBuffer;
 
         public Entity(string name, Transform transform, Entity? parent)
         {
@@ -56,33 +41,70 @@ namespace DD2470_Clustered_Volume_Renderer
     internal struct VertexAttributes
     {
         public Vector3 Normal;
+        public Vector3 Tangent;
         public Vector2 UVs;
     }
 
-    // Contains vertex data
     internal class Mesh
     {
         public Buffer PositionBuffer;
         public Buffer AttributeBuffer;
 
-        public Mesh(Buffer positionBuffer, Buffer attributeBuffer)
+        public Buffer IndexBuffer;
+
+        public Material Material;
+
+        // FIXME:
+        //public Material Material;
+
+        public Mesh(Buffer positionBuffer, Buffer attributeBuffer, Buffer indexBuffer, Material material)
         {
             PositionBuffer = positionBuffer;
             AttributeBuffer = attributeBuffer;
+            IndexBuffer = indexBuffer;
+            Material = material;
         }
     }
 
     internal static class Model
     {
-        public static List<Entity> LoadModel(string modelPath)
+        public static List<Entity> LoadModel(string modelPath, Shader shader)
         {
             AssimpContext context = new AssimpContext();
+            string directory = Path.GetDirectoryName(modelPath)!;
 
-            Scene scene = context.ImportFile(modelPath, PostProcessSteps.Triangulate);
+            Scene scene = context.ImportFile(modelPath, PostProcessSteps.Triangulate | PostProcessSteps.CalculateTangentSpace);
+
+            List<Material> materials = new List<Material>();
+            foreach (var material in scene.Materials)
+            {
+                // FIXME: Copy over color stuff.
+
+                Material m = new Material(shader);
+                if (material.HasTextureDiffuse)
+                {
+                    // FIXME: Set filter settings!
+                    m.Albedo = Texture.LoadTexture(Path.Combine(directory, material.TextureDiffuse.FilePath), true, true);
+                }
+
+                if (material.HasTextureNormal)
+                {
+                    // FIXME: Set filter settings!
+                    m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureNormal.FilePath), false, true);
+                }
+                // FIXME: the sponza we load puts normal maps as dispacement maps...
+                else if (material.HasTextureDisplacement)
+                {
+                    m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureDisplacement.FilePath), false, true);
+                }
+
+                materials.Add(m);
+            }
 
             List<Mesh> meshes = new List<Mesh>();
             foreach (var mesh in scene.Meshes)
             {
+                /*
                 Console.WriteLine($"Mesh: {mesh.Name}");
                 Console.WriteLine($"  Has positions: {mesh.HasVertices}");
                 Console.WriteLine($"  Has normals: {mesh.HasNormals}");
@@ -91,61 +113,75 @@ namespace DD2470_Clustered_Volume_Renderer
                 {
                     Console.WriteLine($"  Has UV{i}: {mesh.HasTextureCoords(i)}");
                 }
+                */
 
                 Span<Vector3D> positions = CollectionsMarshal.AsSpan(mesh.Vertices);
-                Buffer postionBuffer = Buffer.CreateBuffer(positions, OpenTK.Graphics.OpenGL4.BufferStorageFlags.None);
+                Buffer postionBuffer = Buffer.CreateBuffer($"{mesh.Name}_position", positions, BufferStorageFlags.None);
 
                 Span<Vector3D> normals = CollectionsMarshal.AsSpan(mesh.Normals);
-                // FIXME: Tangents?
-                //Span<Vector3D> tangents = CollectionsMarshal.AsSpan(mesh.Tangents);
+                // FIXME: Store the sign of the bitangent in there as well?
+                Span<Vector3D> tangents = CollectionsMarshal.AsSpan(mesh.Tangents);
                 Span<Vector3D> UVs = CollectionsMarshal.AsSpan(mesh.TextureCoordinateChannels[0]);
-                Buffer attributeBuffer = InterleaveBuffers(normals, UVs);
+                Buffer attributeBuffer = InterleaveBuffers($"{mesh.Name}_vertexattributes", normals, tangents, UVs);
 
-                Mesh m = new Mesh(postionBuffer, attributeBuffer);
+                Span<ushort> indices = MemoryMarshal.Cast<short, ushort>(mesh.GetShortIndices().AsSpan());
+                Buffer indexBuffer = Buffer.CreateBuffer($"{mesh.Name}_indices", indices, BufferStorageFlags.None);
+
+                Mesh m = new Mesh(postionBuffer, attributeBuffer, indexBuffer, materials[mesh.MaterialIndex]);
                 meshes.Add(m);
-
-                static Buffer InterleaveBuffers(Span<Vector3D> normals, Span<Vector3D> UVs)
+                
+                static Buffer InterleaveBuffers(string name, Span<Vector3D> normals, Span<Vector3D> tangents, Span<Vector3D> UVs)
                 {
                     VertexAttributes[] attributes = new VertexAttributes[normals.Length];
 
                     for (int i = 0; i < attributes.Length; i++)
                     {
                         attributes[i].Normal = Unsafe.As<Vector3D, Vector3>(ref normals[i]);
+                        attributes[i].Tangent = Unsafe.As<Vector3D, Vector3>(ref tangents[i]);
                         attributes[i].UVs = Unsafe.As<Vector3D, Vector3>(ref UVs[i]).Xy;
                     }
 
-                    return Buffer.CreateBuffer(attributes, OpenTK.Graphics.OpenGL4.BufferStorageFlags.None);
+                    return Buffer.CreateBuffer(name, attributes, BufferStorageFlags.None);
                 }
             }
 
             List<Entity> entities = new List<Entity>();
-            ProcessNode(scene.RootNode, null, entities);
+            ProcessNode(scene.RootNode, null, entities, meshes);
             return entities;
 
-            static Entity ProcessNode(Node node, Entity? parent, List<Entity> entities)
+            static Entity ProcessNode(Node node, Entity? parent, List<Entity> entities, List<Mesh> meshes)
             {
-                Console.WriteLine($"Name: {node.Name}");
-                Console.WriteLine($"  Has mesh: {node.HasMeshes}{(node.HasMeshes ? $" ({string.Join(", ", node.MeshIndices)})" : "")}");
-                Console.WriteLine($"  Children: {node.ChildCount}");
+                //Console.WriteLine($"Name: {node.Name}");
+                //Console.WriteLine($"  Has mesh: {node.HasMeshes}{(node.HasMeshes ? $" ({string.Join(", ", node.MeshIndices)})" : "")}");
+                //Console.WriteLine($"  Children: {node.ChildCount}");
                 var nodeTransform = node.Transform;
                 Matrix4 matrix = Unsafe.As<Matrix4x4, Matrix4>(ref nodeTransform);
-                Console.WriteLine($"  Transform: \n{matrix}");
+                //matrix.Transpose();
+                //Console.WriteLine($"  Transform: \n{matrix}");
 
                 Vector3 position = matrix.ExtractTranslation();
-                Vector3 scale = matrix.ExtractScale();
+                Vector3 scale = matrix.ExtractScale() * (1/2f);
                 OpenTK.Mathematics.Quaternion rotation = matrix.ExtractRotation();
 
                 Transform transform = new Transform(rotation, position, scale);
-                
-                
 
+                // For now we only support one mesh per node
+                Debug.Assert(node.MeshCount <= 1);
+
+                Mesh? mesh = null;
+                if (node.MeshCount > 0)
+                {
+                    mesh = meshes[node.MeshIndices[0]];
+                }
+                
                 // FIXME: Decide if need really need to make an entity here.
                 // FIXME: Parent
                 Entity ent = new Entity(node.Name, transform, parent);
-
+                ent.Mesh = mesh;
+                
                 foreach (Node child in node.Children)
                 {
-                    Entity childEnt = ProcessNode(child, ent, entities);
+                    Entity childEnt = ProcessNode(child, ent, entities, meshes);
                     ent.Children.Add(childEnt);
                 }
 
