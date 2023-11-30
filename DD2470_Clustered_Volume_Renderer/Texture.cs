@@ -75,5 +75,15 @@ namespace DD2470_Clustered_Volume_Renderer
 
             return new Texture(texture, 1, 1, 1, format);
         }
+
+        public static Texture CreateEmpty2D(string name, int width, int height, SizedInternalFormat format)
+        {
+            GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
+            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
+
+            GL.TextureStorage2D(texture, 1, format, width, height);
+
+            return new Texture(texture, width, height, 1, format);
+        }
     }
 }

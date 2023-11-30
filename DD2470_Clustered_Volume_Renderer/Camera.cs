@@ -87,7 +87,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             static void UpdateCameraDirection(Camera camera, MouseState mouse, float deltaTime)
             {
-                if (mouse.IsButtonDown(MouseButton.Right))
+                if (mouse.IsButtonDown(MouseButton.Left))
                 {
                     var delta = mouse.Delta;
 

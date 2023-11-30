@@ -20,10 +20,15 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public int VAO;
 
+        // FIXME: Handle framebuffer resize!
+        public Framebuffer HDRFramebuffer;
+
         public Texture DefaultAlbedo;
         public Texture DefaultNormal;
 
         public Material DefaultMaterial;
+
+        public Material Tonemap;
 
         public Camera Camera;
         public List<Entity> Entities;
@@ -31,9 +36,15 @@ namespace DD2470_Clustered_Volume_Renderer
         protected override void OnLoad()
         {
             base.OnLoad();
+            
+            // FIXME: change this to FramebufferSize when we get OpenTK 4.8.2
+            HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", ClientSize.X, ClientSize.Y);
 
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             DefaultMaterial = new Material(defaultShader);
+
+            Shader tonemapShader = Shader.CreateVertexFragment("Tonemap Shader", "./Shaders/fullscreen.vert", "./Shaders/tonemap.frag");
+            Tonemap = new Material(tonemapShader);
 
             DefaultAlbedo = Texture.FromColor(Color4.White, true);
             DefaultNormal = Texture.FromColor(new Color4(0.5f, 0.5f, 1f, 1f), false);
@@ -85,7 +96,14 @@ namespace DD2470_Clustered_Volume_Renderer
         {
             base.OnRenderFrame(args);
 
-            GL.ClearColor(Color4.Coral);
+            GL.ClearColor(Color4.Black);
+            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
+
+            // FIXME: Depth prepass?
+
+            GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
+
+            GL.ClearColor(Camera.ClearColor);
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
 
             Shader.UseShader(DefaultMaterial.Shader);
@@ -118,12 +136,25 @@ namespace DD2470_Clustered_Volume_Renderer
                 GL.UniformMatrix4(1, true, ref modelMatrix);
                 GL.UniformMatrix3(2, true, ref normalMatrix);
 
+                // FIXME: We assume the camera transform has no parent.
+                GL.Uniform3(10, Camera.Transform.LocalPosition);
+
                 GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3));
                 GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));
                 GL.VertexArrayElementBuffer(VAO, entity.Mesh.IndexBuffer.Handle);
 
                 GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, DrawElementsType.UnsignedShort, 0);
             }
+
+            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            GL.UseProgram(Tonemap.Shader.Handle);
+
+            GL.BindTextureUnit(0, HDRFramebuffer.ColorAttachment0.Handle);
+
+            // Do the tonemap
+            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+            
+            // FIXME: Tonemap
 
             SwapBuffers();
 

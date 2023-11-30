@@ -10,7 +10,7 @@ out vec4 f_color;
 layout(binding=0) uniform sampler2D tex_Albedo;
 layout(binding=1) uniform sampler2D tex_Normal;
 
-uniform vec3 u_CameraPosition;
+layout(location=10) uniform vec3 u_CameraPosition;
 
 struct Surface
 {
@@ -56,16 +56,20 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 {
 	vec3 lightDirection =  light.PositionAndInvSqrRadius.xyz - v_position;
 	float distance = length(lightDirection);
+	float distanceSqr = dot(lightDirection, lightDirection);
 	float attenuation = getDistanceAtt(lightDirection, light.PositionAndInvSqrRadius.w);
 	lightDirection =  normalize(lightDirection);
 	vec3 halfwayDirection = normalize(lightDirection + surface.ViewDirection);
+
+	return (light.Color.rgb * surface.Albedo) / distanceSqr;
 
 	//float attenuation = CalcPointLightAttenuation5(length, light.PositionAndInvSqrRadius.w);
 	
 	vec3 radiance = light.Color.rgb * attenuation;
 
+	return halfwayDirection * attenuation;
 	//return abs(lightDirection);
-	return vec3(1 - distance / 100, 1 - distance / 100, 1 - distance / 100) * light.Color.rgb * surface.Albedo;
+	//return vec3(1 - distance / 100, 1 - distance / 100, 1 - distance / 100) * light.Color.rgb * surface.Albedo;
 	//return vec3(attenuation, attenuation, attenuation);
 	return surface.Albedo * radiance;
 }
@@ -89,7 +93,7 @@ void main()
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
 	
 	vec3 color = vec3(0, 0, 0);
-	color += ShadePointLight(surface, PointLight(vec4(0, 1, 0, 1 / (100 * 100)), vec4(1, 1, 1, 1)));
+	color += ShadePointLight(surface, PointLight(vec4(0, 1, 0, 1 / (100 * 100)), vec4(1500, 2000, 1000, 1)));
 
 	f_color = vec4(color, 1.0);
 }
