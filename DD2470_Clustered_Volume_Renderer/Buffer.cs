@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -67,6 +68,12 @@ namespace DD2470_Clustered_Volume_Renderer
             where T : unmanaged
         {
             return CreateBuffer(name, (ReadOnlySpan<T>)data, flags);
+        }
+
+        public static unsafe Buffer CreateBuffer<T>(string name, List<T> data, BufferStorageFlags flags)
+            where T : unmanaged
+        {
+            return CreateBuffer(name, CollectionsMarshal.AsSpan(data), flags);
         }
     }
 }

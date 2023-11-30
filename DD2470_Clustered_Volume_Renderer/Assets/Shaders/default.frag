@@ -12,6 +12,17 @@ layout(binding=1) uniform sampler2D tex_Normal;
 
 layout(location=10) uniform vec3 u_CameraPosition;
 
+struct PointLight
+{
+	vec4 PositionAndInvSqrRadius;
+	vec4 Color;
+};
+
+layout(std430, row_major, binding=0) buffer PointLights
+{
+	PointLight u_lights[];
+};
+
 struct Surface
 {
 	mat3 TangentToWorld;
@@ -20,12 +31,6 @@ struct Surface
 	vec2 UV0;
 
 	vec3 ViewDirection;
-};
-
-struct PointLight
-{
-	vec4 PositionAndInvSqrRadius;
-	vec4 Color;
 };
 
 float smoothDistanceAtt(float squaredDistance, float invSqrAttRadius)
@@ -93,7 +98,10 @@ void main()
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
 	
 	vec3 color = vec3(0, 0, 0);
-	color += ShadePointLight(surface, PointLight(vec4(0, 1, 0, 1 / (100 * 100)), vec4(1500, 2000, 1000, 1)));
+	for (int i = 0; i < u_lights.length(); i++)
+	{
+		color += ShadePointLight(surface, u_lights[i]);
+	}
 
 	f_color = vec4(color, 1.0);
 }

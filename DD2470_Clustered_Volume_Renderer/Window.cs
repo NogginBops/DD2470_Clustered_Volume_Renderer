@@ -7,11 +7,28 @@ using OpenTK.Windowing.GraphicsLibraryFramework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace DD2470_Clustered_Volume_Renderer
 {
+    internal struct PointLight
+    {
+        public Vector3 Position;
+        public float InverseSquareRadius;
+        public Vector3 Color;
+        public float Padding0;
+
+        public PointLight(Vector3 position, float radius, Color4 color, float intensity)
+        {
+            Position = position;
+            InverseSquareRadius = 1 / (radius * radius);
+            Color = new Vector3(color.R, color.G, color.B) * intensity;
+            Padding0 = 0;
+        }
+    }
+
     internal class Window : GameWindow
     {
         public Window(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings) : base(gameWindowSettings, nativeWindowSettings)
@@ -33,6 +50,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public Camera Camera;
         public List<Entity> Entities;
 
+        public Buffer LightBuffer;
+        public List<PointLight> Lights = new List<PointLight>();
+
         protected override void OnLoad()
         {
             base.OnLoad();
@@ -43,6 +63,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             DefaultMaterial = new Material(defaultShader);
 
+            // FIXME: Make the tonemapping more consistent?
             Shader tonemapShader = Shader.CreateVertexFragment("Tonemap Shader", "./Shaders/fullscreen.vert", "./Shaders/tonemap.frag");
             Tonemap = new Material(tonemapShader);
 
@@ -52,6 +73,23 @@ namespace DD2470_Clustered_Volume_Renderer
             Camera = new Camera(90, Size.X / (float)Size.Y, 0.1f, 10000f);
 
             Entities = Model.LoadModel("./Sponza/sponza.obj", defaultShader);
+
+            // Octahedron mapped point light shadows put into a atlas?
+
+            const int NLights = 50;
+            Random rand = new Random();
+            Vector3 min = new Vector3(-300, 0, -100);
+            Vector3 max = new Vector3(300, 200, 100);
+            for (int i = 0; i < NLights; i++)
+            {
+                Lights.Add(
+                    new PointLight(
+                        rand.NextVector3(min, max),
+                        rand.NextSingle() * 10 + 0.1f,
+                        rand.NextColor4Hue(1, 1),
+                        rand.NextSingle() * 1000 + 0.1f));
+            }
+            LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
             // FIXME: Make a VAO for each mesh?
             GL.CreateVertexArrays(1, out VAO);
@@ -121,6 +159,9 @@ namespace DD2470_Clustered_Volume_Renderer
                 // FIXME: Default albedo and normal textures.
                 GL.BindTextureUnit(0, entity.Mesh.Material.Albedo?.Handle ?? DefaultAlbedo.Handle);
                 GL.BindTextureUnit(1, entity.Mesh.Material.Normal?.Handle ?? DefaultNormal.Handle);
+
+                // Bind the light buffer handle
+                GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 0, LightBuffer.Handle);
 
                 // FIXME: Make calculating these more efficient?
                 Matrix4 modelMatrix = GetLocalToWorldTransform(entity);
