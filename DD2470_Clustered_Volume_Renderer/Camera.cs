@@ -87,7 +87,8 @@ namespace DD2470_Clustered_Volume_Renderer
 
             static void UpdateCameraDirection(Camera camera, MouseState mouse, float deltaTime)
             {
-                if (mouse.IsButtonDown(MouseButton.Left))
+                // FIXME: Some way to detect trackpad...
+                if (mouse.IsButtonDown(MouseButton.Right))
                 {
                     var delta = mouse.Delta;
 
