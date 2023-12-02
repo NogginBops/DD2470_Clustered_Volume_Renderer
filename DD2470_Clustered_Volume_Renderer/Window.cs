@@ -116,6 +116,20 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.DepthMask(true);
         }
 
+        protected override void OnResize(ResizeEventArgs e)
+        {
+            base.OnResize(e);
+
+            GL.Viewport(0, 0, e.Width, e.Height);
+
+            GL.DeleteFramebuffer(HDRFramebuffer.Handle);
+            GL.DeleteTexture(HDRFramebuffer.ColorAttachment0.Handle);
+            GL.DeleteTexture(HDRFramebuffer.DepthStencilAttachment.Handle);
+            HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", e.Width, e.Height);
+
+            Camera.AspectRatio = e.Width / (float)e.Height;
+        }
+
         protected override void OnUpdateFrame(FrameEventArgs args)
         {
             base.OnUpdateFrame(args);
@@ -127,6 +141,18 @@ namespace DD2470_Clustered_Volume_Renderer
             if (KeyboardState.IsKeyPressed(Keys.Escape))
             {
                 Close();
+            }
+
+            if (KeyboardState.IsKeyPressed(Keys.F11))
+            {
+                if (WindowState == WindowState.Fullscreen)
+                {
+                    WindowState = WindowState.Normal;
+                }
+                else
+                {
+                    WindowState = WindowState.Fullscreen;
+                }
             }
         }
 
