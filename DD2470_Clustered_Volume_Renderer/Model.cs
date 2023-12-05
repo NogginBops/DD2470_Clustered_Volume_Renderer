@@ -73,7 +73,13 @@ namespace DD2470_Clustered_Volume_Renderer
             AssimpContext context = new AssimpContext();
             string directory = Path.GetDirectoryName(modelPath)!;
 
+            Stopwatch watch = Stopwatch.StartNew();
             Scene scene = context.ImportFile(modelPath, PostProcessSteps.Triangulate | PostProcessSteps.CalculateTangentSpace);
+
+            watch.Stop();
+            Console.WriteLine($"Loading model took: {watch.Elapsed.TotalMilliseconds:0.000}ms");
+            Console.WriteLine("Started loading textures...");
+            watch.Restart();
 
             List<Material> materials = new List<Material>();
             foreach (var material in scene.Materials)
@@ -84,22 +90,40 @@ namespace DD2470_Clustered_Volume_Renderer
                 if (material.HasTextureDiffuse)
                 {
                     // FIXME: Set filter settings!
-                    m.Albedo = Texture.LoadTexture(Path.Combine(directory, material.TextureDiffuse.FilePath), true, true);
+                    string path = material.TextureDiffuse.FilePath;
+                    string compressed_file = path.Replace("textures", "textures_compressed");
+                    compressed_file = Path.ChangeExtension(compressed_file, "dds");
+                    m.Albedo = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, true);
+
+                    //m.Albedo = Texture.LoadTexture(Path.Combine(directory, material.TextureDiffuse.FilePath), true, true);
                 }
 
                 if (material.HasTextureNormal)
                 {
                     // FIXME: Set filter settings!
-                    m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureNormal.FilePath), false, true);
+                    string path = material.TextureNormal.FilePath;
+                    string compressed_file = path.Replace("textures", "textures_compressed");
+                    compressed_file = Path.ChangeExtension(compressed_file, "dds");
+                    m.Normal = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, false);
+                    
+                    //m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureNormal.FilePath), false, true);
                 }
                 // FIXME: the sponza we load puts normal maps as dispacement maps...
                 else if (material.HasTextureDisplacement)
                 {
-                    m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureDisplacement.FilePath), false, true);
+                    string path = material.TextureDisplacement.FilePath;
+                    string compressed_file = path.Replace("textures", "textures_compressed");
+                    compressed_file = Path.ChangeExtension(compressed_file, "dds");
+                    m.Normal = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, false);
+
+                    //m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureDisplacement.FilePath), false, true);
                 }
 
                 materials.Add(m);
             }
+
+            watch.Stop();
+            Console.WriteLine($"Loading textures took: {watch.Elapsed.TotalMilliseconds:0.000}ms");
 
             List<Mesh> meshes = new List<Mesh>();
             foreach (var mesh in scene.Meshes)

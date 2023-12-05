@@ -56,7 +56,7 @@ namespace DD2470_Clustered_Volume_Renderer
         protected override void OnLoad()
         {
             base.OnLoad();
-            
+
             // FIXME: change this to FramebufferSize when we get OpenTK 4.8.2
             HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", ClientSize.X, ClientSize.Y);
 

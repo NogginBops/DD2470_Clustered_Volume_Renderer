@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -60,6 +62,93 @@ namespace DD2470_Clustered_Volume_Renderer
             }
             
             return new Texture(texture, result.Width, result.Height, 1, format);
+        }
+
+        // FIXME: Get name from path?
+        public static Texture LoadTexture(string name, DDSImage image, bool generateMipmap)
+        {
+            int mipmapLevels = generateMipmap ?
+                MathF.ILogB(Math.Max(image.Width, image.Height)) :
+                1;
+
+            SizedInternalFormat format;
+            switch (image.Format)
+            {
+                case DDSImageFormat.BC5_SNORM:
+                    format = (SizedInternalFormat)All.CompressedRgRgtc2;
+                    break;
+                case DDSImageFormat.BC7_UNORM:
+                    // FIXME: Is this supposed to be sRGB?
+                    format = (SizedInternalFormat)All.CompressedRgbaBptcUnorm;
+                    break;
+                case DDSImageFormat.BC7_UNORM_SRGB:
+                    // FIXME: Is this supposed to be sRGB?
+                    format = (SizedInternalFormat)All.CompressedSrgbAlphaBptcUnorm;
+                    break;
+                default:
+                    throw new Exception();
+            }
+
+            GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
+
+            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
+
+            GL.TextureStorage2D(texture, mipmapLevels, format, image.Width, image.Height);
+            GL.CompressedTextureSubImage2D(texture, 0, 0, 0, image.Width, image.Height, (PixelFormat)format, image.Data.Length, image.Data);
+
+            if (generateMipmap)
+            {
+                GL.GenerateTextureMipmap(texture);
+            }
+            else
+            {
+                // FIXME: Set the texture filtering properties for non-mipmap textures!
+            }
+
+            return new Texture(texture, image.Width, image.Height, 1, format);
+        }
+
+        public static unsafe Texture LoadTexture(string name, DDSImageRef image, bool generateMipmap)
+        {
+            int mipmapLevels = generateMipmap ?
+                MathF.ILogB(Math.Max(image.Width, image.Height)) :
+                1;
+
+            SizedInternalFormat format;
+            switch (image.Format)
+            {
+                case DDSImageFormat.BC5_SNORM:
+                    format = (SizedInternalFormat)All.CompressedRgRgtc2;
+                    break;
+                case DDSImageFormat.BC7_UNORM:
+                    // FIXME: Is this supposed to be sRGB?
+                    format = (SizedInternalFormat)All.CompressedRgbaBptcUnorm;
+                    break;
+                case DDSImageFormat.BC7_UNORM_SRGB:
+                    // FIXME: Is this supposed to be sRGB?
+                    format = (SizedInternalFormat)All.CompressedSrgbAlphaBptcUnorm;
+                    break;
+                default:
+                    throw new Exception();
+            }
+
+            GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
+
+            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
+
+            GL.TextureStorage2D(texture, mipmapLevels, format, image.Width, image.Height);
+            GL.CompressedTextureSubImage2D(texture, 0, 0, 0, image.Width, image.Height, (PixelFormat)format, image.Data.Length, (nint)Unsafe.AsPointer(ref image.Data[0]));
+
+            if (generateMipmap)
+            {
+                GL.GenerateTextureMipmap(texture);
+            }
+            else
+            {
+                // FIXME: Set the texture filtering properties for non-mipmap textures!
+            }
+
+            return new Texture(texture, image.Width, image.Height, 1, format);
         }
 
         public static unsafe Texture FromColor(Color4 color, bool srgb)
