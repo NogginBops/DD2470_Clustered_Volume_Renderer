@@ -44,6 +44,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public Texture DefaultNormal;
 
         public Material DefaultMaterial;
+        public Material DefaultMaterialAlphaCutout;
 
         public Material Tonemap;
 
@@ -62,6 +63,9 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             DefaultMaterial = new Material(defaultShader);
+            Shader defaultShaderAlphaCutout = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout.frag");
+            DefaultMaterialAlphaCutout = new Material(defaultShaderAlphaCutout);
+
 
             // FIXME: Make the tonemapping more consistent?
             Shader tonemapShader = Shader.CreateVertexFragment("Tonemap Shader", "./Shaders/fullscreen.vert", "./Shaders/tonemap.frag");
@@ -72,7 +76,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Camera = new Camera(90, Size.X / (float)Size.Y, 0.1f, 10000f);
 
-            Entities = Model.LoadModel("./Sponza/sponza.obj", defaultShader);
+            Entities = Model.LoadModel("./Sponza/sponza.obj", defaultShader, defaultShaderAlphaCutout);
 
             // Octahedron mapped point light shadows put into a atlas?
 
@@ -87,8 +91,15 @@ namespace DD2470_Clustered_Volume_Renderer
                         rand.NextVector3(min, max),
                         rand.NextSingle() * 10 + 0.1f,
                         rand.NextColor4Hue(1, 1),
-                        rand.NextSingle() * 1000 + 0.1f));
+                        rand.NextSingle() * 10000 + 1f));
             }
+            // "sun"
+            Lights.Add(new PointLight(
+                new Vector3(0, 500, 0),
+                10000,
+                Color4.White,
+                1_000_00
+                ));
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
             // FIXME: Make a VAO for each mesh?
@@ -205,6 +216,12 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 // FIXME: We assume the camera transform has no parent.
                 GL.Uniform3(10, Camera.Transform.LocalPosition);
+
+                if (entity.Mesh.Material.Shader == DefaultMaterialAlphaCutout.Shader)
+                {
+                    // Alpha cutout
+                    GL.Uniform1(20, 0.5f);
+                }
 
                 GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3));
                 GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));

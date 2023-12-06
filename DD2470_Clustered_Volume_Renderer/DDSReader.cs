@@ -56,20 +56,22 @@ namespace DD2470_Clustered_Volume_Renderer
     {
         public int Width;
         public int Height;
+        public int MipmapCount;
 
         public DDSImageFormat Format;
 
-        public byte[] Data;
+        public byte[] AllData;
     }
 
     ref struct DDSImageRef
     {
         public int Width;
         public int Height;
+        public int MipmapCount;
 
         public DDSImageFormat Format;
 
-        public Span<byte> Data;
+        public Span<byte> AllData;
     }
 
     enum DDSImageFormat
@@ -95,17 +97,46 @@ namespace DD2470_Clustered_Volume_Renderer
                 DDS_HEADER* header = &dds->Header;
                 DDS_PIXELFORMAT* format = &header->ddspf;
 
+                if (header->dwFlags.HasFlag(DDSD.WIDTH) == false)
+                {
+                    throw new FormatException("Header does not contain a width.");
+                }
+
+                if (header->dwFlags.HasFlag(DDSD.HEIGHT) == false)
+                {
+                    throw new FormatException("Header does not contain a height.");
+                }
+
                 if (format->dwFlags.HasFlag(DDPF.FOURCC) == false)
                 {
                     throw new FormatException("We only support loading FourCC dds textures atm.");
+                }
+
+                int mipmapCount = 1;
+                // FIXME: This is probably not correct for most formats.
+                int dataSize = (int)header->dwWidth * (int)header->dwHeight;
+                if (header->dwFlags.HasFlag(DDSD.MIPMAPCOUNT))
+                {
+                    mipmapCount = (int)header->dwMipMapCount;
+                    // FIXME: Some way to analytically compute this..?
+                    dataSize = 0;
+                    int mipWidth = (int)header->dwWidth;
+                    int mipHeight = (int)header->dwHeight;
+                    for (int i = 0; i < mipmapCount; i++)
+                    {
+                        // A block is at minium 16 bytes.
+                        dataSize += Math.Max(mipWidth * mipHeight, 16);
+
+                        mipWidth = Math.Max(1, mipWidth / 2);
+                        mipHeight = Math.Max(1, mipHeight / 2);
+                    }
                 }
 
                 ReadOnlySpan<byte> fourCC = new ReadOnlySpan<byte>(header->ddspf.dwFourCC, 4);
                 if (fourCC.SequenceEqual("DX10"u8))
                 {
                     DDS_HEADER_DXT10* dx10 = (DDS_HEADER_DXT10*)(header + 1);
-                    ;
-
+                    
                     DDSImageFormat imageFormat;
                     switch (dx10->dxgiFormat)
                     {
@@ -119,34 +150,32 @@ namespace DD2470_Clustered_Volume_Renderer
                             throw new FormatException($"We don't support '{dx10->dxgiFormat}' formatted DDS images yet.");
                     }
 
-                    // FIXME: Is width * height correct here?
-                    Span<byte> data = new Span<byte>((byte*)(dx10 + 1), (int)header->dwWidth * (int)header->dwHeight);
+                    Span<byte> data = new Span<byte>((byte*)(dx10 + 1), dataSize);
 
                     DDSImageRef image;
                     image.Width = (int)header->dwWidth;
                     image.Height = (int)header->dwHeight;
+                    image.MipmapCount = mipmapCount;
                     image.Format = imageFormat;
 
                     // FIXME: Maybe upload the data directly to the GPU?
-                    image.Data = data;
+                    image.AllData = data;
 
                     return image;
                 }
                 else if (fourCC.SequenceEqual("ATI2"u8))
                 {
                     // This is Bc5 with another name...
-                    int pitch = Math.Max(1, (((int)header->dwWidth + 3) / 4)) * 16;
-
-                    // FIXME: Is width * height correct here?
-                    Span<byte> data = new Span<byte>((byte*)(header + 1), (int)header->dwWidth * (int)header->dwHeight);
+                    
+                    Span<byte> data = new Span<byte>((byte*)(header + 1), dataSize);
 
                     DDSImageRef image;
                     image.Width = (int)header->dwWidth;
                     image.Height = (int)header->dwHeight;
+                    image.MipmapCount = mipmapCount;
                     image.Format = DDSImageFormat.BC5_SNORM;
 
-                    // FIXME: Maybe upload the data directly to the GPU?
-                    image.Data = data;
+                    image.AllData = data;
 
                     return image;
                 }
@@ -164,8 +193,9 @@ namespace DD2470_Clustered_Volume_Renderer
             DDSImage image;
             image.Width = imageRef.Width;
             image.Height = imageRef.Height;
+            image.MipmapCount = imageRef.MipmapCount;
             image.Format = imageRef.Format;
-            image.Data = imageRef.Data.ToArray();
+            image.AllData = imageRef.AllData.ToArray();
             return image;
         }
 

@@ -68,7 +68,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
     internal static class Model
     {
-        public static List<Entity> LoadModel(string modelPath, Shader shader)
+        public static List<Entity> LoadModel(string modelPath, Shader shader, Shader alphaCutout)
         {
             AssimpContext context = new AssimpContext();
             string directory = Path.GetDirectoryName(modelPath)!;
@@ -85,8 +85,16 @@ namespace DD2470_Clustered_Volume_Renderer
             foreach (var material in scene.Materials)
             {
                 // FIXME: Copy over color stuff.
+                Material m;
+                if (material.HasColorTransparent)
+                {
+                    m = new Material(alphaCutout);
+                }
+                else
+                {
+                    m = new Material(shader);
+                }
 
-                Material m = new Material(shader);
                 if (material.HasTextureDiffuse)
                 {
                     // FIXME: Set filter settings!

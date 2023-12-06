@@ -12,13 +12,15 @@ layout(binding=1) uniform sampler2D tex_Normal;
 
 layout(location=10) uniform vec3 u_CameraPosition;
 
+const float PI = 3.14159265359;
+
 struct PointLight
 {
 	vec4 PositionAndInvSqrRadius;
 	vec4 Color;
 };
 
-layout(std430, row_major, binding=0) buffer PointLights
+layout(std430, row_major, binding=0) readonly buffer PointLights
 {
 	PointLight u_lights[];
 };
@@ -31,7 +33,54 @@ struct Surface
 	vec2 UV0;
 
 	vec3 ViewDirection;
+	vec3 ReflectionDirection;
 };
+
+float DistributionGGX(vec3 N, vec3 H, float a)
+{
+	float a2     = a*a;
+	float NdotH  = max(dot(N, H), 0.0);
+	float NdotH2 = NdotH*NdotH;
+	
+	float nom    = a2;
+	float denom  = (NdotH2 * (a2 - 1.0) + 1.0);
+	denom        = PI * denom * denom;
+	
+	return nom / denom;
+}
+
+float GeometrySchlickGGX(float NdotV, float k)
+{
+	float nom   = NdotV;
+	float denom = NdotV * (1.0 - k) + k;
+	
+	return nom / denom;
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float k)
+{
+	float NdotV = max(dot(N, V), 0.0);
+	float NdotL = max(dot(N, L), 0.0);
+	float ggx1 = GeometrySchlickGGX(NdotV, k);
+	float ggx2 = GeometrySchlickGGX(NdotL, k);
+	
+	return ggx1 * ggx2;
+}
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+// https://marmosetco.tumblr.com/post/81245981087
+// R: Reflection vector
+// N: Vertex normal
+float HorizonOcclusion(vec3 R, vec3 N)
+{
+    const float horizonFade = 0.2;
+    float horiz = 1.0 + horizonFade * dot(R, N);
+    return clamp(horiz * horiz, 0, 1);
+}
 
 float smoothDistanceAtt(float squaredDistance, float invSqrAttRadius)
 {
@@ -60,23 +109,50 @@ float CalcPointLightAttenuation5(float distance, float invRadius)
 vec3 ShadePointLight(Surface surface, PointLight light)
 {
 	vec3 lightDirection =  light.PositionAndInvSqrRadius.xyz - v_position;
-	float distance = length(lightDirection);
+	//float distance = length(lightDirection);
 	float distanceSqr = dot(lightDirection, lightDirection);
-	float attenuation = getDistanceAtt(lightDirection, light.PositionAndInvSqrRadius.w);
+	//float attenuation = getDistanceAtt(lightDirection, light.PositionAndInvSqrRadius.w);
 	lightDirection =  normalize(lightDirection);
 	vec3 halfwayDirection = normalize(lightDirection + surface.ViewDirection);
 
-	return (light.Color.rgb * surface.Albedo) / distanceSqr;
+	float attenuation = 1.0 / distanceSqr;
+
+	//return (light.Color.rgb * surface.Albedo) / distanceSqr;
 
 	//float attenuation = CalcPointLightAttenuation5(length, light.PositionAndInvSqrRadius.w);
 	
 	vec3 radiance = light.Color.rgb * attenuation;
 
-	return halfwayDirection * attenuation;
+	// FIXME: Calculate this as part of the surface data!
+	vec3 F0 = vec3(0.04);
+	float metallic = 0.0;
+	F0 = mix(F0, surface.Albedo, metallic);
+
+	// FIXME: Make part of the surface
+	float roughness = 0.2;
+
+	float NDF = DistributionGGX(surface.Normal, halfwayDirection, roughness);
+	float G   = GeometrySmith(surface.Normal, surface.ViewDirection, lightDirection, roughness);
+	vec3 F    = fresnelSchlick(max(dot(halfwayDirection, surface.ViewDirection), 0.0), F0);
+
+	vec3 kS = F;
+	vec3 kD = vec3(1.0) - kS;
+	kD *= 1.0 - metallic;
+
+	vec3 numerator    = NDF * G * F;
+	float denominator = 4.0 * max(dot(surface.Normal, surface.ViewDirection), 0.0) * max(dot(surface.Normal, lightDirection), 0.0) + 0.0001;
+	vec3 specular     = numerator / denominator;
+
+	specular *= HorizonOcclusion(surface.ReflectionDirection, surface.Normal);
+
+	float NdotL = max(dot(surface.Normal, lightDirection), 0.0);
+	return (kD * surface.Albedo / PI + specular) * radiance * NdotL;
+
+	//return halfwayDirection * attenuation;
 	//return abs(lightDirection);
 	//return vec3(1 - distance / 100, 1 - distance / 100, 1 - distance / 100) * light.Color.rgb * surface.Albedo;
 	//return vec3(attenuation, attenuation, attenuation);
-	return surface.Albedo * radiance;
+	//return surface.Albedo * radiance;
 }
 
 void main()
@@ -86,7 +162,10 @@ void main()
 	vec3 bitangent = cross(normal, tangent);
 
 	mat3 tangentToWorld = mat3(tangent, bitangent, normal);
-	vec3 texNormal = texture(tex_Normal, v_uv0).rgb * 2.0 - 1.0;
+	vec3 texNormal;
+	texNormal.xy = texture(tex_Normal, v_uv0).rg * 2.0 - 1.0;
+	texNormal.z = sqrt(1 - dot(texNormal.xy, texNormal.xy));
+	//texNormal = texture(tex_Normal, v_uv0).rgb * 2.0 - 1.0;
 	normal = normalize(tangentToWorld * texNormal);
 
 	Surface surface;
@@ -96,6 +175,7 @@ void main()
 	surface.UV0 = v_uv0;
 
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
+	surface.ReflectionDirection = reflect(-surface.ViewDirection, surface.Normal);
 	
 	vec3 color = vec3(0, 0, 0);
 	for (int i = 0; i < u_lights.length(); i++)
@@ -104,4 +184,5 @@ void main()
 	}
 
 	f_color = vec4(color, 1.0);
+	//f_color = vec4(texNormal, 1.0);
 }

@@ -67,52 +67,23 @@ namespace DD2470_Clustered_Volume_Renderer
         // FIXME: Get name from path?
         public static Texture LoadTexture(string name, DDSImage image, bool generateMipmap)
         {
-            int mipmapLevels = generateMipmap ?
-                MathF.ILogB(Math.Max(image.Width, image.Height)) :
-                1;
-
-            SizedInternalFormat format;
-            switch (image.Format)
-            {
-                case DDSImageFormat.BC5_SNORM:
-                    format = (SizedInternalFormat)All.CompressedRgRgtc2;
-                    break;
-                case DDSImageFormat.BC7_UNORM:
-                    // FIXME: Is this supposed to be sRGB?
-                    format = (SizedInternalFormat)All.CompressedRgbaBptcUnorm;
-                    break;
-                case DDSImageFormat.BC7_UNORM_SRGB:
-                    // FIXME: Is this supposed to be sRGB?
-                    format = (SizedInternalFormat)All.CompressedSrgbAlphaBptcUnorm;
-                    break;
-                default:
-                    throw new Exception();
-            }
-
-            GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
-
-            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
-
-            GL.TextureStorage2D(texture, mipmapLevels, format, image.Width, image.Height);
-            GL.CompressedTextureSubImage2D(texture, 0, 0, 0, image.Width, image.Height, (PixelFormat)format, image.Data.Length, image.Data);
-
-            if (generateMipmap)
-            {
-                GL.GenerateTextureMipmap(texture);
-            }
-            else
-            {
-                // FIXME: Set the texture filtering properties for non-mipmap textures!
-            }
-
-            return new Texture(texture, image.Width, image.Height, 1, format);
+            DDSImageRef imageRef;
+            imageRef.Width = image.Width;
+            imageRef.Height = image.Height;
+            imageRef.MipmapCount = image.MipmapCount;
+            imageRef.Format = image.Format;
+            imageRef.AllData = image.AllData;
+            Texture texture = LoadTexture(name, imageRef, generateMipmap);
+            return texture;
         }
 
         public static unsafe Texture LoadTexture(string name, DDSImageRef image, bool generateMipmap)
         {
             int mipmapLevels = generateMipmap ?
                 MathF.ILogB(Math.Max(image.Width, image.Height)) :
-                1;
+                image.MipmapCount;
+
+            int imageMips = Math.Min(mipmapLevels, image.MipmapCount);
 
             SizedInternalFormat format;
             switch (image.Format)
@@ -137,9 +108,21 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
 
             GL.TextureStorage2D(texture, mipmapLevels, format, image.Width, image.Height);
-            GL.CompressedTextureSubImage2D(texture, 0, 0, 0, image.Width, image.Height, (PixelFormat)format, image.Data.Length, (nint)Unsafe.AsPointer(ref image.Data[0]));
 
-            if (generateMipmap)
+            int dataOffset = 0;
+            int mipWidth = image.Width;
+            int mipHeight = image.Height;
+            for (int i = 0; i < imageMips; i++)
+            {
+                int dataLength = mipWidth * mipHeight;
+                GL.CompressedTextureSubImage2D(texture, i, 0, 0, mipWidth, mipHeight, (PixelFormat)format, dataLength, (nint)Unsafe.AsPointer(ref image.AllData[dataOffset]));
+                dataOffset += mipWidth * mipHeight;
+                mipWidth = Math.Max(1, mipWidth / 2);
+                mipHeight = Math.Max(1, mipHeight / 2);
+            }
+
+            // Only generate mipmaps of the texture didn't have some levels
+            if (generateMipmap && mipmapLevels != imageMips)
             {
                 GL.GenerateTextureMipmap(texture);
             }
