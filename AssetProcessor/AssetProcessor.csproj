@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'Release'">
+    <Content Include="..\Tools\bc7enc_rdo\out\build\x64-Release\bc7enc.dll">
+      <Link>Library\Win64\bc7enc.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <TargetPath>./runtimes/win-x64/native/bc7enc.dll</TargetPath>
+      <IsAssembly>true</IsAssembly>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <Content Include="..\Tools\bc7enc_rdo\out\build\x64-Debug\bc7enc.dll">
+      <Link>Library\Win64\bc7enc.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <TargetPath>./runtimes/win-x64/native/bc7enc.dll</TargetPath>
+      <IsAssembly>true</IsAssembly>
+    </Content>
+    <Content Include="..\Tools\bc7enc_rdo\out\build\x64-Debug\bc7enc.pdb">
+      <Link>Library\Win64\bc7enc.pdb</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <TargetPath>./runtimes/win-x64/native/bc7enc.pdb</TargetPath>
+      <IsAssembly>false</IsAssembly>
+    </Content>
+  </ItemGroup>
+</Project>
