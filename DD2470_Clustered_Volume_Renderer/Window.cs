@@ -110,17 +110,17 @@ namespace DD2470_Clustered_Volume_Renderer
 
             // Separate position buffer.
             GL.VertexArrayAttribBinding(VAO, 0, 0);
-            GL.VertexArrayAttribFormat(VAO, 0, 3, VertexAttribType.Float, false, 0);
+            GL.VertexArrayAttribFormat(VAO, 0, 3, VertexAttribType.HalfFloat, false, 0);
             GL.EnableVertexArrayAttrib(VAO, 0);
             // Other vertex attributes.
             GL.VertexArrayAttribBinding(VAO, 1, 1);
             GL.VertexArrayAttribBinding(VAO, 2, 1);
             GL.VertexArrayAttribBinding(VAO, 3, 1);
-            GL.VertexArrayAttribFormat(VAO, 1, 3, VertexAttribType.Float, false, 0);
+            GL.VertexArrayAttribFormat(VAO, 1, 4, VertexAttribType.Int2101010Rev, false, 0);
             GL.EnableVertexArrayAttrib(VAO, 1);
-            GL.VertexArrayAttribFormat(VAO, 2, 3, VertexAttribType.Float, false, sizeof(float) * 3);
+            GL.VertexArrayAttribFormat(VAO, 2, 4, VertexAttribType.Int2101010Rev, false, 4);
             GL.EnableVertexArrayAttrib(VAO, 2);
-            GL.VertexArrayAttribFormat(VAO, 3, 2, VertexAttribType.Float, false, sizeof(float) * 6);
+            GL.VertexArrayAttribFormat(VAO, 3, 2, VertexAttribType.Float, false, 8);
             GL.EnableVertexArrayAttrib(VAO, 3);
 
             GL.BindVertexArray(VAO);
@@ -221,7 +221,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     GL.Uniform1(20, 0.5f);
                 }
 
-                GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3));
+                GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3h));
                 GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));
                 GL.VertexArrayElementBuffer(VAO, entity.Mesh.IndexBuffer.Handle);
 
@@ -288,7 +288,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     GL.Uniform1(20, 0.5f);
                 }
 
-                GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3));
+                GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3h));
                 GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));
                 GL.VertexArrayElementBuffer(VAO, entity.Mesh.IndexBuffer.Handle);
 

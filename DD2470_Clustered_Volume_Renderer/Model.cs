@@ -14,7 +14,6 @@ using StbImageSharp;
 
 namespace DD2470_Clustered_Volume_Renderer
 {
-
     internal class Entity
     {
         public string Name;
@@ -38,10 +37,53 @@ namespace DD2470_Clustered_Volume_Renderer
         }
     }
 
+    /// <summary>
+    /// A 2_10_10_10 packed normal
+    /// </summary>
+    public struct PackedNormal
+    {
+        public uint Normal;
+
+        public PackedNormal(uint normal)
+        {
+            Normal = normal;
+        }
+
+        public static PackedNormal Pack(Vector3 normal)
+        {
+            return new PackedNormal(PackNormal(normal));
+        }
+
+        public static uint PackNormal(Vector3 normal)
+        {
+            // FIXME: Make full use of the -2^9, 2^9 - 1 range?
+            uint x = (uint)((int)(normal.X * 511) & 0x000003FF);
+            uint y = (uint)((int)(normal.Y * 511) & 0x000003FF);
+            uint z = (uint)((int)(normal.Z * 511) & 0x000003FF);
+            uint w = 0b01;
+            return w << 30 | z << 20 | y << 10 | x;
+        }
+
+        public static Vector3 UnpackNormal(uint normal)
+        {
+            // FIXME: Make full use of the -2^9, 2^9 - 1 range?
+            int x = ((int)(((normal >> 00) & 0x03FF) << 22)) >> 22;
+            int y = ((int)(((normal >> 10) & 0x03FF) << 22)) >> 22;
+            int z = ((int)(((normal >> 20) & 0x03FF) << 22)) >> 22;
+
+            return new Vector3(x / 511f, y / 511f, z / 511f);
+        }
+
+        public override string ToString()
+        {
+            return $"{UnpackNormal(Normal)}";
+        }
+    }
+
     internal struct VertexAttributes
     {
-        public Vector3 Normal;
-        public Vector3 Tangent;
+        public PackedNormal Normal;
+        public PackedNormal Tangent;
         public Vector2 UVs;
     }
 
@@ -165,8 +207,13 @@ namespace DD2470_Clustered_Volume_Renderer
                 }
                 */
 
-                Span<Vector3D> positions = CollectionsMarshal.AsSpan(mesh.Vertices);
-                Buffer postionBuffer = Buffer.CreateBuffer($"{mesh.Name}_position", positions, BufferStorageFlags.None);
+                Span<Vector3> positions = MemoryMarshal.Cast<Vector3D, Vector3>(CollectionsMarshal.AsSpan(mesh.Vertices));
+                Vector3h[] halfPositons = new Vector3h[positions.Length];
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    halfPositons[i] = (Vector3h)positions[i];
+                }
+                Buffer postionBuffer = Buffer.CreateBuffer($"{mesh.Name}_position", halfPositons, BufferStorageFlags.None);
 
                 Span<Vector3D> normals = CollectionsMarshal.AsSpan(mesh.Normals);
                 // FIXME: Store the sign of the bitangent in there as well?
@@ -195,8 +242,8 @@ namespace DD2470_Clustered_Volume_Renderer
 
                     for (int i = 0; i < attributes.Length; i++)
                     {
-                        attributes[i].Normal = Unsafe.As<Vector3D, Vector3>(ref normals[i]);
-                        attributes[i].Tangent = Unsafe.As<Vector3D, Vector3>(ref tangents[i]);
+                        attributes[i].Normal = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref normals[i]));
+                        attributes[i].Tangent = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref tangents[i]));
                         attributes[i].UVs = Unsafe.As<Vector3D, Vector3>(ref UVs[i]).Xy;
                     }
 
