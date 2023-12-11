@@ -1,0 +1,6 @@
+[submodule "Tools/bc7enc_rdo"]
+	path = Tools/bc7enc_rdo
+	url = git@github.com:NogginBops/bc7enc_rdo.git
+[submodule "Tools/meshoptimizer"]
+	path = Tools/meshoptimizer
+	url = git@github.com:zeux/meshoptimizer.git
