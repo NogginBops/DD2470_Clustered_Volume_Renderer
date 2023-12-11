@@ -31,6 +31,7 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.ObjectLabel(ObjectLabelIdentifier.Framebuffer, framebuffer, -1, name);
 
             Texture colorTexture = Texture.CreateEmpty2D($"{name}_color", width, height, SizedInternalFormat.Rgba16f);
+            // FIXME: Maybe change to 32F depth?
             Texture depthStencilTexture = Texture.CreateEmpty2D($"{name}_depth", width, height, SizedInternalFormat.Depth24Stencil8);
 
             GL.NamedFramebufferTexture(framebuffer, FramebufferAttachment.ColorAttachment0, colorTexture.Handle, 0);

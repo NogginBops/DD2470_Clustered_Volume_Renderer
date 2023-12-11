@@ -62,26 +62,28 @@ namespace DD2470_Clustered_Volume_Renderer
             HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", ClientSize.X, ClientSize.Y);
 
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
-            DefaultMaterial = new Material(defaultShader);
+            Shader defaultShaderPrepass = Shader.CreateVertexFragment("Default Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
+            DefaultMaterial = new Material(defaultShader, defaultShaderPrepass);
             Shader defaultShaderAlphaCutout = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout.frag");
-            DefaultMaterialAlphaCutout = new Material(defaultShaderAlphaCutout);
+            Shader defaultShaderAlphaCutoutPrepass = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout_prepass.frag");
+            DefaultMaterialAlphaCutout = new Material(defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
 
 
             // FIXME: Make the tonemapping more consistent?
             Shader tonemapShader = Shader.CreateVertexFragment("Tonemap Shader", "./Shaders/fullscreen.vert", "./Shaders/tonemap.frag");
-            Tonemap = new Material(tonemapShader);
+            Tonemap = new Material(tonemapShader, null);
 
             DefaultAlbedo = Texture.FromColor(Color4.White, true);
             DefaultNormal = Texture.FromColor(new Color4(0.5f, 0.5f, 1f, 1f), false);
 
             Camera = new Camera(90, Size.X / (float)Size.Y, 0.1f, 10000f);
 
-            //Entities = Model.LoadModel("./Sponza/sponza.obj", defaultShader, defaultShaderAlphaCutout);
+            Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
-            Entities = Model.LoadModel("./temple/temple.gltf", defaultShader, defaultShaderAlphaCutout);
+            //Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             // Octahedron mapped point light shadows put into a atlas?
 
-            const int NLights = 50;
+            const int NLights = 100;
             Random rand = new Random();
             Vector3 min = new Vector3(-300, 0, -100);
             Vector3 max = new Vector3(300, 200, 100);
@@ -166,6 +168,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     WindowState = WindowState.Fullscreen;
                 }
             }
+
+            Title = $"{args.Time*1000:0.000}ms";
         }
 
         protected unsafe override void OnRenderFrame(FrameEventArgs args)
@@ -179,8 +183,68 @@ namespace DD2470_Clustered_Volume_Renderer
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
 
+            // FIXME: Reverse Z?
+
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Depth prepass");
+
+            GL.DepthMask(true);
+            GL.ColorMask(false, false, false, false);
+            GL.Clear(ClearBufferMask.DepthBufferBit);
+            GL.DepthFunc(DepthFunction.Lequal);
+
+            // FIXME: Loop through all entities and draw them.
+            for (int i = 0; i < Entities.Count; i++)
+            {
+                Entity entity = Entities[i];
+
+                // If there is nothing to render, skip it.
+                if (entity.Mesh == null)
+                    continue;
+
+                // Bind the prepass shader?
+                Shader.UseShader(entity.Mesh.Material.PrepassShader);
+
+                // FIXME: Make calculating these more efficient?
+                Matrix4 modelMatrix = GetLocalToWorldTransform(entity);
+                Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
+                Matrix4 projectionMatrix = Camera.ProjectionMatrix;
+
+                Matrix4 vp = viewMatrix * projectionMatrix;
+                Matrix4 mvp = modelMatrix * vp;
+
+                GL.UniformMatrix4(0, true, ref mvp);
+
+                if (entity.Mesh.Material.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
+                {
+                    GL.BindTextureUnit(0, entity.Mesh.Material.Albedo?.Handle ?? DefaultAlbedo.Handle);
+                    // Alpha cutout
+                    GL.Uniform1(20, 0.5f);
+                }
+
+                GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3));
+                GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));
+                GL.VertexArrayElementBuffer(VAO, entity.Mesh.IndexBuffer.Handle);
+
+                var elementType = entity.Mesh.IndexBuffer.Size switch
+                {
+                    2 => DrawElementsType.UnsignedShort,
+                    4 => DrawElementsType.UnsignedInt,
+                    _ => throw new NotSupportedException(),
+                };
+
+                GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
+            }
+
+            GL.PopDebugGroup();
+
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Color pass");
+
+            GL.DepthMask(false);
+            GL.ColorMask(true, true, true, true);
+            GL.DepthFunc(DepthFunction.Equal);
+
             GL.ClearColor(Camera.ClearColor);
-            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
+            GL.Clear(ClearBufferMask.ColorBufferBit);
 
             Shader.UseShader(DefaultMaterial.Shader);
 
@@ -238,15 +302,22 @@ namespace DD2470_Clustered_Volume_Renderer
                 GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
             }
 
+            GL.PopDebugGroup();
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Postprocess");
+
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
             Shader.UseShader(Tonemap.Shader);
 
             GL.BindTextureUnit(0, HDRFramebuffer.ColorAttachment0.Handle);
 
+            GL.DepthMask(false);
+            GL.ColorMask(true, true, true, true);
+            GL.DepthFunc(DepthFunction.Always);
+
             // Do the tonemap
             GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
-            
-            // FIXME: Tonemap
+
+            GL.PopDebugGroup();
 
             SwapBuffers();
 

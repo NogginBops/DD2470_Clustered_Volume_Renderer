@@ -68,7 +68,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
     internal static class Model
     {
-        public static List<Entity> LoadModel(string modelPath, Shader shader, Shader alphaCutout)
+        public static List<Entity> LoadModel(string modelPath, float scale, Shader shader, Shader prepass, Shader alphaCutout, Shader prepassCutout)
         {
             AssimpContext context = new AssimpContext();
             string directory = Path.GetDirectoryName(modelPath)!;
@@ -88,11 +88,11 @@ namespace DD2470_Clustered_Volume_Renderer
                 Material m;
                 if (material.HasColorTransparent || material.Name == "Grass_Diffuse")
                 {
-                    m = new Material(alphaCutout);
+                    m = new Material(alphaCutout, prepassCutout);
                 }
                 else
                 {
-                    m = new Material(shader);
+                    m = new Material(shader, prepass);
                 }
 
                 if (material.HasTextureDiffuse)
@@ -205,7 +205,8 @@ namespace DD2470_Clustered_Volume_Renderer
             }
 
             List<Entity> entities = new List<Entity>();
-            ProcessNode(scene.RootNode, null, entities, meshes);
+            Entity rootEntity = ProcessNode(scene.RootNode, null, entities, meshes);
+            rootEntity.Transform.LocalScale *= scale;
             return entities;
 
             static Entity ProcessNode(Node node, Entity? parent, List<Entity> entities, List<Mesh> meshes)
