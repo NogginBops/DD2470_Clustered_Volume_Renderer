@@ -3,4 +3,4 @@
 	url = git@github.com:NogginBops/bc7enc_rdo.git
 [submodule "Tools/meshoptimizer"]
 	path = Tools/meshoptimizer
-	url = git@github.com:zeux/meshoptimizer.git
+	url = git@github.com:NogginBops/meshoptimizer.git
