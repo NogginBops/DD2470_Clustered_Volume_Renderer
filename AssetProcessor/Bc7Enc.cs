@@ -2,6 +2,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
+#pragma warning disable IDE1006 // Naming Styles
 namespace AssetProcessor
 {
     public unsafe struct encode_output
@@ -113,51 +114,11 @@ namespace AssetProcessor
         }
     }
 
-    internal class Program
-    {
-        public static void Main()
-        {
-            rdo_bc_params @params = new rdo_bc_params();
-            @params.m_y_flip = true;
-            @params.m_generate_mipmaps = true;
-            @params.m_status_output = true;
-
-            bc7enc_error error = Bc7Enc.compress_image_from_file("C:\\Users\\juliu\\Documents\\GitHub\\KTH\\DD2470_Clustered_Volume_Renderer\\DD2470_Clustered_Volume_Renderer\\Assets\\Sponza\\textures_png\\background.png", @params , out encode_output output);
-
-            Console.WriteLine($"Error: {error}");
-            if (error == bc7enc_error.success)
-            {
-                Console.WriteLine($"Width: {output.width}, Height: {output.height}");
-                Console.WriteLine($"Mips: {output.mipmap_count}");
-                Console.WriteLine($"Total blocks: {output.num_blocks}");
-                Console.WriteLine($"Block size: {output.bytes_per_block}");
-            }
-        }
-    }
-
     public static partial class Bc7Enc
     {
         static Bc7Enc()
         {
-            NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), (string libraryName, Assembly assembly, DllImportSearchPath? searchPath) =>
-            {
-                if (libraryName == "bc7enc")
-                {
-                    string libPath = Path.Combine("runtimes", RuntimeInformation.RuntimeIdentifier, "native", "bc7enc.dll");
-                    if (NativeLibrary.TryLoad(libPath, assembly, searchPath, out nint handle))
-                    {
-                        return handle;
-                    }
-                    else
-                    {
-                        throw new PlatformNotSupportedException($"Could not find native library at: '{libPath}'");
-                    }
-                }
-                else
-                {
-                    return NativeLibrary.Load(libraryName, assembly, searchPath);
-                }
-            });
+            DllResolver.InitLoader();
         }
 
         /// <param name="data">RGBA image data.</param>
@@ -191,3 +152,4 @@ namespace AssetProcessor
 
     }
 }
+#pragma warning restore IDE1006 // Naming Styles

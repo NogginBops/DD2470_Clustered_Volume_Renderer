@@ -8,7 +8,7 @@ namespace DD2470_Clustered_Volume_Renderer
         static void Main(string[] args)
         {
             // FIXME: Better way to do this?
-            Directory.SetCurrentDirectory("../../../Assets");
+            Directory.SetCurrentDirectory("../../../../Assets");
 
             GameWindowSettings gws = new GameWindowSettings()
             {
@@ -20,7 +20,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 API = ContextAPI.OpenGL,
                 APIVersion = new Version(4, 6),
                 Title = "Clustered Volume Renderer",
-                Size = (1600, 900),
+                ClientSize = (1600, 900),
                 Flags = ContextFlags.ForwardCompatible,
                 Profile = ContextProfile.Core,
             };

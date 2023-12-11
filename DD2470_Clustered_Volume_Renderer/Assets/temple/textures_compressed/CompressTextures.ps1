@@ -1,0 +1,3 @@
+Get-ChildItem -File ..\textures\ -Include "*_albedo.png" -Recurse | Foreach { ..\..\..\..\Tools\bc7enc.exe -g -s -p -y -mip -mP $($_) }
+Get-ChildItem -File ..\textures\ -Include "*_normal.png" -Recurse | Foreach { ..\..\..\..\Tools\bc7enc.exe -g -5 -y -mip -mL $($_) }
+Get-ChildItem -File ..\textures\ -Include "*_roughness.png" -Recurse | Foreach { ..\..\..\..\Tools\bc7enc.exe -g -s -y -mip -mL $($_) }

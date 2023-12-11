@@ -76,8 +76,9 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Camera = new Camera(90, Size.X / (float)Size.Y, 0.1f, 10000f);
 
-            Entities = Model.LoadModel("./Sponza/sponza.obj", defaultShader, defaultShaderAlphaCutout);
-
+            //Entities = Model.LoadModel("./Sponza/sponza.obj", defaultShader, defaultShaderAlphaCutout);
+            //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
+            Entities = Model.LoadModel("./temple/temple.gltf", defaultShader, defaultShaderAlphaCutout);
             // Octahedron mapped point light shadows put into a atlas?
 
             const int NLights = 50;
@@ -227,11 +228,18 @@ namespace DD2470_Clustered_Volume_Renderer
                 GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));
                 GL.VertexArrayElementBuffer(VAO, entity.Mesh.IndexBuffer.Handle);
 
-                GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, DrawElementsType.UnsignedShort, 0);
+                var elementType = entity.Mesh.IndexBuffer.Size switch
+                {
+                    2 => DrawElementsType.UnsignedShort,
+                    4 => DrawElementsType.UnsignedInt,
+                    _ => throw new NotSupportedException(),
+                };
+
+                GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
             }
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-            GL.UseProgram(Tonemap.Shader.Handle);
+            Shader.UseShader(Tonemap.Shader);
 
             GL.BindTextureUnit(0, HDRFramebuffer.ColorAttachment0.Handle);
 

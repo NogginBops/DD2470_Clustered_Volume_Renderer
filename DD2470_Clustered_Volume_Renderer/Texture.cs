@@ -148,6 +148,35 @@ namespace DD2470_Clustered_Volume_Renderer
             return new Texture(texture, 1, 1, 1, format);
         }
 
+        public static unsafe Texture FromImage(string name, ImageResult image, bool srgb, bool generateMipmap)
+        {
+            int mipmapLevels = generateMipmap ?
+                MathF.ILogB(Math.Max(image.Width, image.Height)) :
+                1;
+
+            SizedInternalFormat format = srgb ? SizedInternalFormat.Srgb8Alpha8 : SizedInternalFormat.Rgba8;
+
+            PixelFormat pixelFormat = PixelFormat.Rgba;
+            PixelType pixelType = PixelType.UnsignedByte;
+
+            GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
+            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
+
+            GL.TextureStorage2D(texture, mipmapLevels, format, image.Width, image.Height);
+            GL.TextureSubImage2D(texture, 0, 0, 0, image.Width, image.Height, pixelFormat, pixelType, image.Data);
+
+            if (generateMipmap)
+            {
+                GL.GenerateTextureMipmap(texture);
+            }
+            else
+            {
+                // FIXME: Set the texture filtering properties for non-mipmap textures!
+            }
+
+            return new Texture(texture, image.Width, image.Height, 1, format);
+        }
+
         public static Texture CreateEmpty2D(string name, int width, int height, SizedInternalFormat format)
         {
             GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
@@ -156,6 +185,12 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.TextureStorage2D(texture, 1, format, width, height);
 
             return new Texture(texture, width, height, 1, format);
+        }
+
+        public void SetFilter(TextureMinFilter minFilter, TextureMagFilter magFilter)
+        {
+            GL.TextureParameter(Handle, TextureParameterName.TextureMinFilter, (int)minFilter);
+            GL.TextureParameter(Handle, TextureParameterName.TextureMagFilter, (int)magFilter);
         }
     }
 }

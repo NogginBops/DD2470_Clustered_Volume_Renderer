@@ -8,7 +8,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DD2470_Clustered_Volume_Ren
 		{DBDA8350-8E4D-40C9-817C-C1271F288B14} = {DBDA8350-8E4D-40C9-817C-C1271F288B14}
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AssetProcessor", "AssetProcessor\AssetProcessor.csproj", "{DBDA8350-8E4D-40C9-817C-C1271F288B14}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AssetProcessor", "AssetProcessor\AssetProcessor.csproj", "{DBDA8350-8E4D-40C9-817C-C1271F288B14}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8BA81007-78B8-412A-ABB6-6D2B250A333B}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

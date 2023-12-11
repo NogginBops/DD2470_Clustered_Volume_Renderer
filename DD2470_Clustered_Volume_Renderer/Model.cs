@@ -10,6 +10,7 @@ using Assimp;
 using OpenTK.Graphics.ES11;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
+using StbImageSharp;
 
 namespace DD2470_Clustered_Volume_Renderer
 {
@@ -22,8 +23,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public List<Entity> Children;
 
         public Mesh? Mesh;
-        public Buffer IndexBuffer;
-
+        
         public Entity(string name, Transform transform, Entity? parent)
         {
             Name = name;
@@ -86,7 +86,7 @@ namespace DD2470_Clustered_Volume_Renderer
             {
                 // FIXME: Copy over color stuff.
                 Material m;
-                if (material.HasColorTransparent)
+                if (material.HasColorTransparent || material.Name == "Grass_Diffuse")
                 {
                     m = new Material(alphaCutout);
                 }
@@ -99,22 +99,40 @@ namespace DD2470_Clustered_Volume_Renderer
                 {
                     // FIXME: Set filter settings!
                     string path = material.TextureDiffuse.FilePath;
+
+                    // For now we just load it as is...
+                    //EmbeddedTexture texture = scene.GetEmbeddedTexture(path);
+                    //StbImage.stbi_set_flip_vertically_on_load(1);
+                    //ImageResult result = ImageResult.FromMemory(texture.CompressedData, ColorComponents.RedGreenBlueAlpha);
+                    //m.Albedo = Texture.FromImage(path, result, true, true);
+
                     string compressed_file = path.Replace("textures", "textures_compressed");
                     compressed_file = Path.ChangeExtension(compressed_file, "dds");
                     m.Albedo = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, true);
+
+                    m.Albedo.SetFilter(OpenTK.Graphics.OpenGL4.TextureMinFilter.LinearMipmapLinear, OpenTK.Graphics.OpenGL4.TextureMagFilter.Linear);
 
                     //m.Albedo = Texture.LoadTexture(Path.Combine(directory, material.TextureDiffuse.FilePath), true, true);
                 }
 
                 if (material.HasTextureNormal)
                 {
+                    //string path = material.TextureNormal.FilePath;
+                    // For now we just load it as is...
+                    //EmbeddedTexture texture = scene.GetEmbeddedTexture(path);
+                    //StbImage.stbi_set_flip_vertically_on_load(1);
+                    //ImageResult result = ImageResult.FromMemory(texture.CompressedData, ColorComponents.RedGreenBlueAlpha);
+                    //m.Normal = Texture.FromImage(path, result, false, true);
+
                     // FIXME: Set filter settings!
                     string path = material.TextureNormal.FilePath;
                     string compressed_file = path.Replace("textures", "textures_compressed");
                     compressed_file = Path.ChangeExtension(compressed_file, "dds");
                     m.Normal = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, false);
-                    
+
                     //m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureNormal.FilePath), false, true);
+                    
+                    m.Normal.SetFilter(OpenTK.Graphics.OpenGL4.TextureMinFilter.LinearMipmapLinear, OpenTK.Graphics.OpenGL4.TextureMagFilter.Linear);
                 }
                 // FIXME: the sponza we load puts normal maps as dispacement maps...
                 else if (material.HasTextureDisplacement)
@@ -156,8 +174,17 @@ namespace DD2470_Clustered_Volume_Renderer
                 Span<Vector3D> UVs = CollectionsMarshal.AsSpan(mesh.TextureCoordinateChannels[0]);
                 Buffer attributeBuffer = InterleaveBuffers($"{mesh.Name}_vertexattributes", normals, tangents, UVs);
 
-                Span<ushort> indices = MemoryMarshal.Cast<short, ushort>(mesh.GetShortIndices().AsSpan());
-                Buffer indexBuffer = Buffer.CreateBuffer($"{mesh.Name}_indices", indices, BufferStorageFlags.None);
+                Buffer indexBuffer;
+                if (mesh.FaceCount * 3 > ushort.MaxValue)
+                {
+                    Span<uint> indices = mesh.GetUnsignedIndices().AsSpan();
+                    indexBuffer = Buffer.CreateBuffer($"{mesh.Name}_indices", indices, BufferStorageFlags.None);
+                }
+                else
+                {
+                    Span<ushort> indices = MemoryMarshal.Cast<short, ushort>(mesh.GetShortIndices().AsSpan());
+                    indexBuffer = Buffer.CreateBuffer($"{mesh.Name}_indices", indices, BufferStorageFlags.None);
+                }
 
                 Mesh m = new Mesh(postionBuffer, attributeBuffer, indexBuffer, materials[mesh.MaterialIndex]);
                 meshes.Add(m);
@@ -188,11 +215,11 @@ namespace DD2470_Clustered_Volume_Renderer
                 //Console.WriteLine($"  Children: {node.ChildCount}");
                 var nodeTransform = node.Transform;
                 Matrix4 matrix = Unsafe.As<Matrix4x4, Matrix4>(ref nodeTransform);
-                //matrix.Transpose();
+                matrix.Transpose();
                 //Console.WriteLine($"  Transform: \n{matrix}");
 
                 Vector3 position = matrix.ExtractTranslation();
-                Vector3 scale = matrix.ExtractScale() * (1/2f);
+                Vector3 scale = matrix.ExtractScale();// * (1/2f);
                 OpenTK.Mathematics.Quaternion rotation = matrix.ExtractRotation();
 
                 Transform transform = new Transform(rotation, position, scale);

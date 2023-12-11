@@ -25,6 +25,7 @@ namespace DD2470_Clustered_Volume_Renderer
             if (currentShader != shader)
             {
                 GL.UseProgram(shader?.Handle ?? 0);
+                currentShader = shader;
             }
         }
 
