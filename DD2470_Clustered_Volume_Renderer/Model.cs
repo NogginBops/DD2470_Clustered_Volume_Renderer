@@ -122,6 +122,8 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public Buffer IndexBuffer;
 
+        public Box3 AABB;
+
         public Mesh2(int baseVertex, int indexCount, int indexSize, int indexByteOffset, Material material)
         {
             BaseVertex = baseVertex;
@@ -140,7 +142,7 @@ namespace DD2470_Clustered_Volume_Renderer
             string directory = Path.GetDirectoryName(modelPath)!;
 
             Stopwatch watch = Stopwatch.StartNew();
-            Scene scene = context.ImportFile(modelPath, PostProcessSteps.Triangulate | PostProcessSteps.CalculateTangentSpace);
+            Scene scene = context.ImportFile(modelPath, PostProcessSteps.Triangulate | PostProcessSteps.CalculateTangentSpace | PostProcessSteps.GenerateBoundingBoxes);
 
             watch.Stop();
             Console.WriteLine($"Loading model took: {watch.Elapsed.TotalMilliseconds:0.000}ms");
@@ -279,6 +281,8 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 //Mesh m = new Mesh(postionBuffer, attributeBuffer, indexBuffer, materials[mesh.MaterialIndex]);
                 Mesh2 m = new Mesh2(baseVertex, index_count, index_size, index_offset, materials[mesh.MaterialIndex]);
+                BoundingBox bounds = mesh.BoundingBox;
+                m.AABB = new Box3(Unsafe.As<Vector3D, Vector3>(ref bounds.Min), Unsafe.As<Vector3D, Vector3>(ref bounds.Max));
                 meshes.Add(m);
                 
                 static void InterleaveBuffers(Span<VertexAttributes> interleaved, Span<Vector3D> normals, Span<Vector3D> tangents, Span<Vector3D> UVs)

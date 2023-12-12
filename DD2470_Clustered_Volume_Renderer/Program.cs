@@ -23,6 +23,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 ClientSize = (1600, 900),
                 Flags = ContextFlags.ForwardCompatible,
                 Profile = ContextProfile.Core,
+                Vsync = VSyncMode.Off,
             };
 
             Window window = new Window(gws, nws);

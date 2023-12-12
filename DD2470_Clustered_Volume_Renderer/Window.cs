@@ -39,6 +39,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
         // FIXME: Handle framebuffer resize!
         public Framebuffer HDRFramebuffer;
+        public Framebuffer HiZMipFramebuffer;
 
         public Texture DefaultAlbedo;
         public Texture DefaultNormal;
@@ -47,6 +48,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material DefaultMaterialAlphaCutout;
 
         public Material Tonemap;
+
+        public Material HiZDepthCopy;
+        public Material HiZPass;
 
         public Camera Camera;
         public List<Entity> Entities;
@@ -58,8 +62,9 @@ namespace DD2470_Clustered_Volume_Renderer
         {
             base.OnLoad();
 
-            // FIXME: change this to FramebufferSize when we get OpenTK 4.8.2
-            HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", ClientSize.X, ClientSize.Y);
+            HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", FramebufferSize.X, FramebufferSize.Y);
+
+            HiZMipFramebuffer = Framebuffer.CreateHiZFramebuffer("HI-Z Framebuffer", FramebufferSize.X, FramebufferSize.Y);
 
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             Shader defaultShaderPrepass = Shader.CreateVertexFragment("Default Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
@@ -72,6 +77,12 @@ namespace DD2470_Clustered_Volume_Renderer
             // FIXME: Make the tonemapping more consistent?
             Shader tonemapShader = Shader.CreateVertexFragment("Tonemap Shader", "./Shaders/fullscreen.vert", "./Shaders/tonemap.frag");
             Tonemap = new Material(tonemapShader, null);
+
+            Shader hiZPass = Shader.CreateVertexFragment("HiZ Pass Shader", "./Shaders/fullscreen.vert", "./Shaders/HiZMip.frag");
+            HiZPass = new Material(hiZPass, null);
+
+            Shader hiZDepthCopy = Shader.CreateVertexFragment("HiZ Pass Shader", "./Shaders/fullscreen.vert", "./Shaders/DepthToTexture.frag");
+            HiZDepthCopy = new Material(hiZDepthCopy, null);
 
             DefaultAlbedo = Texture.FromColor(Color4.White, true);
             DefaultNormal = Texture.FromColor(new Color4(0.5f, 0.5f, 1f, 1f), false);
@@ -131,9 +142,9 @@ namespace DD2470_Clustered_Volume_Renderer
             Graphics.SetDepthWrite(true);
         }
 
-        protected override void OnResize(ResizeEventArgs e)
+        protected override void OnFramebufferResize(FramebufferResizeEventArgs e)
         {
-            base.OnResize(e);
+            base.OnFramebufferResize(e);
 
             GL.Viewport(0, 0, e.Width, e.Height);
 
@@ -141,6 +152,11 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.DeleteTexture(HDRFramebuffer.ColorAttachment0.Handle);
             GL.DeleteTexture(HDRFramebuffer.DepthStencilAttachment.Handle);
             HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", e.Width, e.Height);
+
+            GL.DeleteFramebuffer(HiZMipFramebuffer.Handle);
+            GL.DeleteTexture(HiZMipFramebuffer.ColorAttachment0.Handle);
+            GL.DeleteTexture(HiZMipFramebuffer.DepthStencilAttachment.Handle);
+            HiZMipFramebuffer = Framebuffer.CreateHiZFramebuffer("HI-Z Framebuffer", e.Width, e.Height);
 
             Camera.AspectRatio = e.Width / (float)e.Height;
         }
@@ -170,7 +186,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 }
             }
 
-            Title = $"{args.Time*1000:0.000}ms";
+            Title = $"{args.Time*1000:0.000}ms ({1/args.Time:0.00} fps)";
         }
 
         struct Drawcall
@@ -222,6 +238,59 @@ namespace DD2470_Clustered_Volume_Renderer
 
             List<Entity> RenderEntities = new List<Entity>(Entities);
             RenderEntities.Sort((e1, e2) => Material.Compare(e1.Mesh?.Material, e2.Mesh?.Material));
+
+            Frustum frustum = Frustum.FromCamera(Camera);
+            for (int i = 0; i < RenderEntities.Count; i++)
+            {
+                Entity entity = RenderEntities[i];
+                if (entity.Mesh == null)
+                    continue;
+
+                // FIXME: Something weird is going on...
+                Box3 AABB = RecalculateAABB(entity.Mesh.AABB, GetLocalToWorldTransform(entity));
+                if (Frustum.IntersectsAABB(frustum, AABB))
+                {
+                    Console.WriteLine($"Intersects! {entity.Name}");
+                }
+
+                static Box3 RecalculateAABB(Box3 AABB, Matrix4 localToWorld)
+                {
+                    // http://www.realtimerendering.com/resources/GraphicsGems/gems/TransBox.c
+
+                    // FIXME:
+                    //var l2w = transform.LocalToWorld;
+                    Matrix4 l2w = localToWorld;
+                    Matrix3 rotation = new Matrix3(l2w);
+                    Vector3 translation = l2w.Row3.Xyz;
+
+                    Span<float> Amin = stackalloc float[3];
+                    Span<float> Amax = stackalloc float[3];
+                    Span<float> Bmin = stackalloc float[3];
+                    Span<float> Bmax = stackalloc float[3];
+
+                    Amin[0] = AABB.Min.X; Amax[0] = AABB.Max.X;
+                    Amin[1] = AABB.Min.Y; Amax[1] = AABB.Max.Y;
+                    Amin[2] = AABB.Min.Z; Amax[2] = AABB.Max.Z;
+
+                    Bmin[0] = Bmax[0] = translation.X;
+                    Bmin[1] = Bmax[1] = translation.Y;
+                    Bmin[2] = Bmax[2] = translation.Z;
+
+                    for (int i = 0; i < 3; i++)
+                    {
+                        for (int j = 0; j < 3; j++)
+                        {
+                            var a = rotation[j, i] * Amin[j];
+                            var b = rotation[j, i] * Amax[j];
+                            Bmin[i] += a < b ? a : b;
+                            Bmax[i] += a < b ? b : a;
+                        }
+                    }
+
+                    return new Box3(Bmin[0], Bmin[1], Bmin[2], Bmax[0], Bmax[1], Bmax[2]);
+                }
+            }
+
 
             List<Drawcall> drawcalls = new List<Drawcall>();
             for (int i = 0; i < RenderEntities.Count; i++)
@@ -302,219 +371,169 @@ namespace DD2470_Clustered_Volume_Renderer
             // FIXME: Reverse Z?
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Depth prepass");
-
-            Graphics.SetDepthWrite(true);
-            Graphics.SetColorWrite(ColorChannels.None);
-            Graphics.Clear(ClearMask.Depth);
-            Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
-
-#if false
-            // FIXME: Loop through all entities and draw them.
-            for (int i = 0; i < RenderEntities.Count; i++)
             {
-                Entity entity = RenderEntities[i];
+                Graphics.SetDepthWrite(true);
+                Graphics.SetColorWrite(ColorChannels.None);
+                Graphics.Clear(ClearMask.Depth);
+                Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
 
-                // If there is nothing to render, skip it.
-                if (entity.Mesh == null)
-                    continue;
-
-                // Bind the prepass shader?
-                Graphics.UseShader(entity.Mesh.Material.PrepassShader);
-
-                // FIXME: Make calculating these more efficient?
-                Matrix4 modelMatrix = GetLocalToWorldTransform(entity);
-                Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
-                Matrix4 projectionMatrix = Camera.ProjectionMatrix;
-
-                Matrix4 vp = viewMatrix * projectionMatrix;
-                Matrix4 mvp = modelMatrix * vp;
-
-                GL.UniformMatrix4(0, true, ref mvp);
-
-                if (entity.Mesh.Material.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
+                for (int i = 0; i < drawcalls.Count; i++)
                 {
-                    Graphics.BindTexture(0, entity.Mesh.Material.Albedo ?? DefaultAlbedo);
-                    // Alpha cutout
-                    GL.Uniform1(20, 0.5f);
+                    Drawcall drawcall = drawcalls[i];
+                    Graphics.UseShader(drawcall.PrepassShader ?? drawcall.Shader);
+
+                    if (drawcall.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
+                    {
+                        Graphics.BindTexture(0, drawcall.AlbedoTexture);
+
+                        // Alpha cutout
+                        GL.Uniform1(20, 0.5f);
+                    }
+
+                    Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
+
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
+                    Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
+
+                    var elementType = drawcall.IndexSize switch
+                    {
+                        2 => DrawElementsType.UnsignedShort,
+                        4 => DrawElementsType.UnsignedInt,
+                        _ => throw new NotSupportedException(),
+                    };
+
+                    GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
+
+                    //GL.DrawElementsBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.BaseVertex);
+                }
+            }
+            GL.PopDebugGroup();
+
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Hi-Z");
+            {
+                Graphics.UseShader(HiZDepthCopy.Shader);
+
+                int mipWidth = HDRFramebuffer.DepthStencilAttachment.Width;
+                int mipHeight = HDRFramebuffer.DepthStencilAttachment.Height;
+
+                GL.Disable(EnableCap.DepthTest);
+                Graphics.SetDepthWrite(false);
+
+                // Copy over the depth data...
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, HiZMipFramebuffer.Handle);
+                GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, 0);
+                GL.Viewport(0, 0, HiZMipFramebuffer.ColorAttachment0.Width, HiZMipFramebuffer.ColorAttachment0.Height);
+                Graphics.BindTexture(0, HDRFramebuffer.DepthStencilAttachment);
+                GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+
+                Graphics.UseShader(HiZPass.Shader);
+
+                for (int i = 1; i < HiZMipFramebuffer.ColorAttachment0.MipCount; i++)
+                {
+                    mipWidth = Math.Max(1, mipWidth / 2);
+                    mipHeight = Math.Max(1, mipHeight / 2);
+
+                    int layerToRenderTo = i;
+                    int layerToSampleFrom = layerToRenderTo - 1;
+
+                    GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, layerToRenderTo);
+                    GL.Viewport(0, 0, mipWidth, mipHeight);
+
+                    var status = GL.CheckNamedFramebufferStatus(HiZMipFramebuffer.Handle, FramebufferTarget.Framebuffer);
+                    if (status != FramebufferStatus.FramebufferComplete)
+                    {
+                        Console.WriteLine($"Incomplete framebuffer: {status}");
+                    }
+
+                    Graphics.BindTexture(0, HiZMipFramebuffer.ColorAttachment0);
+                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, layerToSampleFrom);
+                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, layerToSampleFrom);
+
+                    GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
                 }
 
-                Graphics.BindVertexAttributeBuffer(TheVAO, 0, entity.Mesh.PositionBuffer, 0, sizeof(Vector3h));
-                Graphics.BindVertexAttributeBuffer(TheVAO, 1, entity.Mesh.AttributeBuffer, 0, sizeof(VertexAttributes));
-                Graphics.SetElementBuffer(TheVAO, entity.Mesh.IndexBuffer);
-                
-                var elementType = entity.Mesh.IndexSize switch
-                {
-                    2 => DrawElementsType.UnsignedShort,
-                    4 => DrawElementsType.UnsignedInt,
-                    _ => throw new NotSupportedException(),
-                };
+                GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, 0);
+                GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, 1000);
 
-                GL.DrawElementsBaseVertex(PrimitiveType.Triangles, entity.Mesh.IndexCount, elementType, entity.Mesh.IndexByteOffset, entity.Mesh.BaseVertex);
-                //GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
+                GL.Enable(EnableCap.DepthTest);
+
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
+                GL.Viewport(0, 0, HDRFramebuffer.ColorAttachment0.Width, HDRFramebuffer.ColorAttachment0.Height);
             }
-#else
-            for (int i = 0; i < drawcalls.Count; i++)
-            {
-                Drawcall drawcall = drawcalls[i];
-                Graphics.UseShader(drawcall.PrepassShader ?? drawcall.Shader);
-
-                if (drawcall.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
-                {
-                    Graphics.BindTexture(0, drawcall.AlbedoTexture);
-
-                    // Alpha cutout
-                    GL.Uniform1(20, 0.5f);
-                }
-
-                Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
-
-                Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
-                Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
-                Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
-
-                var elementType = drawcall.IndexSize switch
-                {
-                    2 => DrawElementsType.UnsignedShort,
-                    4 => DrawElementsType.UnsignedInt,
-                    _ => throw new NotSupportedException(),
-                };
-
-                GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
-
-                //GL.DrawElementsBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.BaseVertex);
-            }
-#endif
-
             GL.PopDebugGroup();
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Color pass");
-
-            Graphics.SetDepthWrite(false);
-            Graphics.SetColorWrite(ColorChannels.All);
-            Graphics.SetDepthFunc(DepthFunc.PassIfEqual);
-
-            Graphics.SetClearColor(Camera.ClearColor);
-            Graphics.Clear(ClearMask.Color);
-
-            Graphics.UseShader(DefaultMaterial.Shader);
-
-#if false
-            // FIXME: Loop through all entities and draw them.
-            for (int i = 0; i < RenderEntities.Count; i++)
             {
-                Entity entity = RenderEntities[i];
+                Graphics.SetDepthWrite(false);
+                Graphics.SetColorWrite(ColorChannels.All);
+                Graphics.SetDepthFunc(DepthFunc.PassIfEqual);
 
-                // If there is nothing to render, skip it.
-                if (entity.Mesh == null)
-                    continue;
+                Graphics.SetClearColor(Camera.ClearColor);
+                Graphics.Clear(ClearMask.Color);
 
-                Graphics.UseShader(entity.Mesh.Material.Shader);
+                Graphics.UseShader(DefaultMaterial.Shader);
 
-                Graphics.BindTexture(0, entity.Mesh.Material.Albedo ?? DefaultAlbedo);
-                Graphics.BindTexture(1, entity.Mesh.Material.Normal ?? DefaultNormal);
-
-                // Bind the light buffer handle
-                Graphics.BindShaderStorageBlock(0, LightBuffer);
-
-                // FIXME: Make calculating these more efficient?
-                Matrix4 modelMatrix = GetLocalToWorldTransform(entity);
-                Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
-                Matrix4 projectionMatrix = Camera.ProjectionMatrix;
-
-                Matrix4 vp = viewMatrix * projectionMatrix;
-                Matrix4 mvp = modelMatrix * vp;
-
-                Matrix3 normalMatrix = Matrix3.Transpose(new Matrix3(modelMatrix).Inverted());
-
-                GL.UniformMatrix4(0, true, ref mvp);
-                GL.UniformMatrix4(1, true, ref modelMatrix);
-                GL.UniformMatrix3(2, true, ref normalMatrix);
-
-                // FIXME: We assume the camera transform has no parent.
-                GL.Uniform3(10, Camera.Transform.LocalPosition);
-
-                if (entity.Mesh.Material.Shader == DefaultMaterialAlphaCutout.Shader)
+                for (int i = 0; i < drawcalls.Count; i++)
                 {
-                    // Alpha cutout
-                    GL.Uniform1(20, 0.5f);
+                    Drawcall drawcall = drawcalls[i];
+
+                    Graphics.UseShader(drawcall.Shader);
+
+                    Graphics.BindTexture(0, drawcall.AlbedoTexture);
+                    Graphics.BindTexture(1, drawcall.NormalTexture);
+
+                    Graphics.BindShaderStorageBlock(0, LightBuffer);
+                    Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
+
+                    // FIXME: We assume the camera transform has no parent.
+                    GL.Uniform3(10, Camera.Transform.LocalPosition);
+
+                    if (drawcall.Shader == DefaultMaterialAlphaCutout.Shader)
+                    {
+                        // Alpha cutout
+                        GL.Uniform1(20, 0.5f);
+                    }
+
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
+                    Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
+
+                    var elementType = drawcall.IndexSize switch
+                    {
+                        2 => DrawElementsType.UnsignedShort,
+                        4 => DrawElementsType.UnsignedInt,
+                        _ => throw new NotSupportedException(),
+                    };
+
+                    GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
                 }
-
-                Graphics.BindVertexAttributeBuffer(TheVAO, 0, entity.Mesh.PositionBuffer, 0, sizeof(Vector3h));
-                Graphics.BindVertexAttributeBuffer(TheVAO, 1, entity.Mesh.AttributeBuffer, 0, sizeof(VertexAttributes));
-                Graphics.SetElementBuffer(TheVAO, entity.Mesh.IndexBuffer);
-
-                var elementType = entity.Mesh.IndexSize switch
-                {
-                    2 => DrawElementsType.UnsignedShort,
-                    4 => DrawElementsType.UnsignedInt,
-                    _ => throw new NotSupportedException(),
-                };
-
-                GL.DrawElementsBaseVertex(PrimitiveType.Triangles, entity.Mesh.IndexCount, elementType, entity.Mesh.IndexByteOffset, entity.Mesh.BaseVertex);
-
-                //GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
             }
-#else
-            for (int i = 0; i < drawcalls.Count; i++)
-            {
-                Drawcall drawcall = drawcalls[i];
-
-                Graphics.UseShader(drawcall.Shader);
-
-                Graphics.BindTexture(0, drawcall.AlbedoTexture);
-                Graphics.BindTexture(1, drawcall.NormalTexture);
-
-                Graphics.BindShaderStorageBlock(0, LightBuffer);
-                Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
-
-                // FIXME: We assume the camera transform has no parent.
-                GL.Uniform3(10, Camera.Transform.LocalPosition);
-
-                if (drawcall.Shader == DefaultMaterialAlphaCutout.Shader)
-                {
-                    // Alpha cutout
-                    GL.Uniform1(20, 0.5f);
-                }
-
-                Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
-                Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
-                Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
-
-                var elementType = drawcall.IndexSize switch
-                {
-                    2 => DrawElementsType.UnsignedShort,
-                    4 => DrawElementsType.UnsignedInt,
-                    _ => throw new NotSupportedException(),
-                };
-
-                GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
-            }
-#endif
-
             GL.PopDebugGroup();
+
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Postprocess");
-
-            // Clean up instance data.
-            // FIXME: Do something smarter with the buffers??
-            for (int i = 0; i < drawcalls.Count; i++)
             {
-                Drawcall drawcall = drawcalls[i];
+                // Clean up instance data.
+                // FIXME: Do something smarter with the buffers??
+                for (int i = 0; i < drawcalls.Count; i++)
+                {
+                    Drawcall drawcall = drawcalls[i];
 
-                Buffer.DeleteBuffer(drawcall.InstanceData);
+                    Buffer.DeleteBuffer(drawcall.InstanceData);
+                }
+
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                Graphics.UseShader(Tonemap.Shader);
+
+                Graphics.BindTexture(0, HDRFramebuffer.ColorAttachment0);
+
+                Graphics.SetDepthWrite(false);
+                Graphics.SetColorWrite(ColorChannels.All);
+                Graphics.SetDepthFunc(DepthFunc.AlwaysPass);
+
+                // Do the tonemap
+                GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
             }
-
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-            Graphics.UseShader(Tonemap.Shader);
-
-            Graphics.BindTexture(0, HDRFramebuffer.ColorAttachment0);
-
-            Graphics.SetDepthWrite(false);
-            Graphics.SetColorWrite(ColorChannels.All);
-            Graphics.SetDepthFunc(DepthFunc.AlwaysPass);
-
-            // Do the tonemap
-            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
-
             GL.PopDebugGroup();
 
             SwapBuffers();

@@ -17,15 +17,17 @@ namespace DD2470_Clustered_Volume_Renderer
         public int Handle;
         public int Width, Height, Depth;
         public SizedInternalFormat Format;
+        public int MipCount;
 
         // FIXME: sRGB? mipmap details? etc
 
-        public Texture(int handle, int width, int height, int depth, SizedInternalFormat format)
+        public Texture(int handle, int width, int height, int depth, int mipCount, SizedInternalFormat format)
         {
             Handle = handle;
             Width = width;
             Height = height;
             Depth = depth;
+            MipCount = mipCount;
             Format = format;
         }
 
@@ -36,7 +38,7 @@ namespace DD2470_Clustered_Volume_Renderer
             ImageResult result = ImageResult.FromStream(File.OpenRead(path), ColorComponents.RedGreenBlueAlpha);
 
             int mipmapLevels = generateMipmap ?
-                MathF.ILogB(Math.Max(result.Width, result.Height)) :
+                MathF.ILogB(Math.Max(result.Width, result.Height)) + 1 :
                 1;
 
             SizedInternalFormat format = srgb ? SizedInternalFormat.Srgb8Alpha8 : SizedInternalFormat.Rgba8;
@@ -61,7 +63,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 // FIXME: Set the texture filtering properties for non-mipmap textures!
             }
             
-            return new Texture(texture, result.Width, result.Height, 1, format);
+            return new Texture(texture, result.Width, result.Height, 1, mipmapLevels, format);
         }
 
         // FIXME: Get name from path?
@@ -80,7 +82,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public static unsafe Texture LoadTexture(string name, DDSImageRef image, bool generateMipmap)
         {
             int mipmapLevels = generateMipmap ?
-                MathF.ILogB(Math.Max(image.Width, image.Height)) :
+                MathF.ILogB(Math.Max(image.Width, image.Height)) + 1 :
                 image.MipmapCount;
 
             int imageMips = Math.Min(mipmapLevels, image.MipmapCount);
@@ -131,7 +133,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 // FIXME: Set the texture filtering properties for non-mipmap textures!
             }
 
-            return new Texture(texture, image.Width, image.Height, 1, format);
+            return new Texture(texture, image.Width, image.Height, mipmapLevels, 1, format);
         }
 
         public static unsafe Texture FromColor(Color4 color, bool srgb)
@@ -145,13 +147,13 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.TextureStorage2D(texture, 1, format, 1, 1);
             GL.TextureSubImage2D(texture, 0, 0, 0, 1, 1, pixelFormat, pixelType, (nint)(Color4*)&color);
 
-            return new Texture(texture, 1, 1, 1, format);
+            return new Texture(texture, 1, 1, 1, 1, format);
         }
 
         public static unsafe Texture FromImage(string name, ImageResult image, bool srgb, bool generateMipmap)
         {
             int mipmapLevels = generateMipmap ?
-                MathF.ILogB(Math.Max(image.Width, image.Height)) :
+                MathF.ILogB(Math.Max(image.Width, image.Height)) + 1 :
                 1;
 
             SizedInternalFormat format = srgb ? SizedInternalFormat.Srgb8Alpha8 : SizedInternalFormat.Rgba8;
@@ -174,17 +176,19 @@ namespace DD2470_Clustered_Volume_Renderer
                 // FIXME: Set the texture filtering properties for non-mipmap textures!
             }
 
-            return new Texture(texture, image.Width, image.Height, 1, format);
+            return new Texture(texture, image.Width, image.Height, 1, mipmapLevels, format);
         }
 
-        public static Texture CreateEmpty2D(string name, int width, int height, SizedInternalFormat format)
+        public static Texture CreateEmpty2D(string name, int width, int height, SizedInternalFormat format, bool hasMips)
         {
             GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
             GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
 
-            GL.TextureStorage2D(texture, 1, format, width, height);
+            int mipmapLevels = hasMips ? MathF.ILogB(Math.Max(width, height)) + 1 : 1;
 
-            return new Texture(texture, width, height, 1, format);
+            GL.TextureStorage2D(texture, mipmapLevels, format, width, height);
+
+            return new Texture(texture, width, height, 1, mipmapLevels, format);
         }
 
         public void SetFilter(TextureMinFilter minFilter, TextureMagFilter magFilter)
