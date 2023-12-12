@@ -1,5 +1,4 @@
-﻿using OpenTK.Audio.OpenAL;
-using OpenTK.Graphics.OpenGL4;
+﻿using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
@@ -10,6 +9,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using static Assimp.Metadata;
 
 namespace DD2470_Clustered_Volume_Renderer
 {
@@ -35,7 +35,7 @@ namespace DD2470_Clustered_Volume_Renderer
         {
         }
 
-        public int VAO;
+        public VAO TheVAO;
 
         // FIXME: Handle framebuffer resize!
         public Framebuffer HDRFramebuffer;
@@ -78,9 +78,9 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Camera = new Camera(90, Size.X / (float)Size.Y, 0.1f, 10000f);
 
-            Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
+            //Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
-            //Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
+            Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             // Octahedron mapped point light shadows put into a atlas?
 
             const int NLights = 100;
@@ -105,29 +105,30 @@ namespace DD2470_Clustered_Volume_Renderer
                 ));
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
+
+
             // FIXME: Make a VAO for each mesh?
-            GL.CreateVertexArrays(1, out VAO);
+            TheVAO = Graphics.SetupVAO("The VAO");
 
             // Separate position buffer.
-            GL.VertexArrayAttribBinding(VAO, 0, 0);
-            GL.VertexArrayAttribFormat(VAO, 0, 3, VertexAttribType.HalfFloat, false, 0);
-            GL.EnableVertexArrayAttrib(VAO, 0);
+            Graphics.LinkAttributeBufferBinding(TheVAO, 0, 0);
+            Graphics.SetVertexAttribute(TheVAO, 0, true, 3, VertexAttribType.HalfFloat, false, 0);
             // Other vertex attributes.
-            GL.VertexArrayAttribBinding(VAO, 1, 1);
-            GL.VertexArrayAttribBinding(VAO, 2, 1);
-            GL.VertexArrayAttribBinding(VAO, 3, 1);
-            GL.VertexArrayAttribFormat(VAO, 1, 4, VertexAttribType.Int2101010Rev, false, 0);
-            GL.EnableVertexArrayAttrib(VAO, 1);
-            GL.VertexArrayAttribFormat(VAO, 2, 4, VertexAttribType.Int2101010Rev, false, 4);
-            GL.EnableVertexArrayAttrib(VAO, 2);
-            GL.VertexArrayAttribFormat(VAO, 3, 2, VertexAttribType.Float, false, 8);
-            GL.EnableVertexArrayAttrib(VAO, 3);
+            Graphics.LinkAttributeBufferBinding(TheVAO, 1, 1);
+            Graphics.LinkAttributeBufferBinding(TheVAO, 2, 1);
+            Graphics.LinkAttributeBufferBinding(TheVAO, 3, 1);
+            Graphics.SetVertexAttribute(TheVAO, 1, true, 4, VertexAttribType.Int2101010Rev, false, 0);
+            Graphics.SetVertexAttribute(TheVAO, 2, true, 4, VertexAttribType.Int2101010Rev, false, 4);
+            Graphics.SetVertexAttribute(TheVAO, 3, true, 2, VertexAttribType.Float, false, 8);
 
-            GL.BindVertexArray(VAO);
+            Graphics.BindVertexArray(TheVAO);
 
+            // FIXME: Make a graphics thing for this...
             GL.Enable(EnableCap.DepthTest);
-            GL.DepthFunc(DepthFunction.Lequal);
-            GL.DepthMask(true);
+            GL.Enable(EnableCap.CullFace);
+            Graphics.SetCullMode(CullMode.CullBackFacing);
+            Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
+            Graphics.SetDepthWrite(true);
         }
 
         protected override void OnResize(ResizeEventArgs e)
@@ -172,14 +173,129 @@ namespace DD2470_Clustered_Volume_Renderer
             Title = $"{args.Time*1000:0.000}ms";
         }
 
+        struct Drawcall
+        {
+            public Buffer PositionBuffer;
+            public Buffer AttributeBuffer;
+            public Buffer IndexBuffer;
+
+            public Shader Shader;
+            public Shader? PrepassShader;
+
+            public Texture AlbedoTexture;
+            public Texture NormalTexture;
+
+            public int InstanceCount;
+            public int BaseVertex;
+            public int IndexCount;
+            public int IndexByteOffset;
+            public int IndexSize;
+
+            public Buffer InstanceData;
+        }
+
+        struct MaterialData
+        {
+            public Texture Albedo;
+            public Texture Normal;
+            // ...
+
+            MaterialBlock Data;
+
+            struct MaterialBlock
+            {
+                public float AlphaCutout;
+            }
+        }
+
+        struct InstanceData
+        {
+            public Matrix4 ModelMatrix;
+            public Matrix4 MVP;
+            // Do this for std430 alignment rules...
+            public Matrix4 NormalMatrix;
+        }
+
         protected unsafe override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
 
-            GL.ClearColor(Color4.Black);
-            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
+            List<Entity> RenderEntities = new List<Entity>(Entities);
+            RenderEntities.Sort((e1, e2) => Material.Compare(e1.Mesh?.Material, e2.Mesh?.Material));
 
-            // FIXME: Depth prepass?
+            List<Drawcall> drawcalls = new List<Drawcall>();
+            for (int i = 0; i < RenderEntities.Count; i++)
+            {
+                Entity baseEntity = RenderEntities[i];
+                if (baseEntity.Mesh == null)
+                    continue;
+
+                int instanceCount = 1;
+                while (i + instanceCount < RenderEntities.Count && CanInstance(baseEntity, RenderEntities[i + instanceCount]))
+                {
+                    instanceCount++;
+                }
+
+                Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
+                Matrix4 projectionMatrix = Camera.ProjectionMatrix;
+                Matrix4 vp = viewMatrix * projectionMatrix;
+
+                InstanceData[] instanceData = new InstanceData[instanceCount];
+                for (int instance = 0; instance < instanceData.Length; instance++)
+                {
+                    Matrix4 modelMatrix = GetLocalToWorldTransform(RenderEntities[i + instance]);
+                    Matrix4 mvp = modelMatrix * vp;
+                    Matrix3 normalMatrix = Matrix3.Transpose(new Matrix3(modelMatrix).Inverted());
+
+                    instanceData[instance].ModelMatrix = modelMatrix;
+                    instanceData[instance].MVP = mvp;
+                    instanceData[instance].NormalMatrix = new Matrix4(normalMatrix);
+                }
+
+                Drawcall drawcall = new Drawcall
+                {
+                    PositionBuffer = baseEntity.Mesh.PositionBuffer,
+                    AttributeBuffer = baseEntity.Mesh.AttributeBuffer,
+                    IndexBuffer = baseEntity.Mesh.IndexBuffer,
+                    Shader = baseEntity.Mesh.Material.Shader,
+                    PrepassShader = baseEntity.Mesh.Material.PrepassShader,
+                    AlbedoTexture = baseEntity.Mesh.Material.Albedo ?? DefaultAlbedo,
+                    NormalTexture = baseEntity.Mesh.Material.Normal ?? DefaultNormal,
+                    InstanceCount = instanceCount,
+                    BaseVertex = baseEntity.Mesh.BaseVertex,
+                    IndexCount = baseEntity.Mesh.IndexCount,
+                    IndexByteOffset = baseEntity.Mesh.IndexByteOffset,
+                    IndexSize = baseEntity.Mesh.IndexSize,
+                    // FIXME: We are allocating this every frame?
+                    InstanceData = Buffer.CreateBuffer("", instanceData, BufferStorageFlags.None)
+                };
+                drawcalls.Add(drawcall);
+
+                i += instanceCount - 1;
+
+                static bool CanInstance(Entity @base, Entity entity)
+                {
+                    if (@base.Mesh == null || entity.Mesh == null) return false;
+
+                    if (@base.Mesh.PositionBuffer == entity.Mesh.PositionBuffer &&
+                        @base.Mesh.AttributeBuffer == entity.Mesh.AttributeBuffer &&
+                        @base.Mesh.IndexBuffer == entity.Mesh.IndexBuffer &&
+                        @base.Mesh.BaseVertex == entity.Mesh.BaseVertex &&
+                        @base.Mesh.IndexCount == entity.Mesh.IndexCount &&
+                        @base.Mesh.IndexSize == entity.Mesh.IndexSize &&
+                        @base.Mesh.Material.Shader == entity.Mesh.Material.Shader)
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            Graphics.SetClearColor(Color4.Black);
+            Graphics.Clear(ClearMask.Color | ClearMask.Depth | ClearMask.Stencil);
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
 
@@ -187,22 +303,23 @@ namespace DD2470_Clustered_Volume_Renderer
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Depth prepass");
 
-            GL.DepthMask(true);
-            GL.ColorMask(false, false, false, false);
-            GL.Clear(ClearBufferMask.DepthBufferBit);
-            GL.DepthFunc(DepthFunction.Lequal);
+            Graphics.SetDepthWrite(true);
+            Graphics.SetColorWrite(ColorChannels.None);
+            Graphics.Clear(ClearMask.Depth);
+            Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
 
+#if false
             // FIXME: Loop through all entities and draw them.
-            for (int i = 0; i < Entities.Count; i++)
+            for (int i = 0; i < RenderEntities.Count; i++)
             {
-                Entity entity = Entities[i];
+                Entity entity = RenderEntities[i];
 
                 // If there is nothing to render, skip it.
                 if (entity.Mesh == null)
                     continue;
 
                 // Bind the prepass shader?
-                Shader.UseShader(entity.Mesh.Material.PrepassShader);
+                Graphics.UseShader(entity.Mesh.Material.PrepassShader);
 
                 // FIXME: Make calculating these more efficient?
                 Matrix4 modelMatrix = GetLocalToWorldTransform(entity);
@@ -216,54 +333,88 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 if (entity.Mesh.Material.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
                 {
-                    GL.BindTextureUnit(0, entity.Mesh.Material.Albedo?.Handle ?? DefaultAlbedo.Handle);
+                    Graphics.BindTexture(0, entity.Mesh.Material.Albedo ?? DefaultAlbedo);
                     // Alpha cutout
                     GL.Uniform1(20, 0.5f);
                 }
 
-                GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3h));
-                GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));
-                GL.VertexArrayElementBuffer(VAO, entity.Mesh.IndexBuffer.Handle);
-
-                var elementType = entity.Mesh.IndexBuffer.Size switch
+                Graphics.BindVertexAttributeBuffer(TheVAO, 0, entity.Mesh.PositionBuffer, 0, sizeof(Vector3h));
+                Graphics.BindVertexAttributeBuffer(TheVAO, 1, entity.Mesh.AttributeBuffer, 0, sizeof(VertexAttributes));
+                Graphics.SetElementBuffer(TheVAO, entity.Mesh.IndexBuffer);
+                
+                var elementType = entity.Mesh.IndexSize switch
                 {
                     2 => DrawElementsType.UnsignedShort,
                     4 => DrawElementsType.UnsignedInt,
                     _ => throw new NotSupportedException(),
                 };
 
-                GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
+                GL.DrawElementsBaseVertex(PrimitiveType.Triangles, entity.Mesh.IndexCount, elementType, entity.Mesh.IndexByteOffset, entity.Mesh.BaseVertex);
+                //GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
             }
+#else
+            for (int i = 0; i < drawcalls.Count; i++)
+            {
+                Drawcall drawcall = drawcalls[i];
+                Graphics.UseShader(drawcall.PrepassShader ?? drawcall.Shader);
+
+                if (drawcall.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
+                {
+                    Graphics.BindTexture(0, drawcall.AlbedoTexture);
+
+                    // Alpha cutout
+                    GL.Uniform1(20, 0.5f);
+                }
+
+                Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
+
+                Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
+                Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
+                Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
+
+                var elementType = drawcall.IndexSize switch
+                {
+                    2 => DrawElementsType.UnsignedShort,
+                    4 => DrawElementsType.UnsignedInt,
+                    _ => throw new NotSupportedException(),
+                };
+
+                GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
+
+                //GL.DrawElementsBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.BaseVertex);
+            }
+#endif
 
             GL.PopDebugGroup();
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Color pass");
 
-            GL.DepthMask(false);
-            GL.ColorMask(true, true, true, true);
-            GL.DepthFunc(DepthFunction.Equal);
+            Graphics.SetDepthWrite(false);
+            Graphics.SetColorWrite(ColorChannels.All);
+            Graphics.SetDepthFunc(DepthFunc.PassIfEqual);
 
-            GL.ClearColor(Camera.ClearColor);
-            GL.Clear(ClearBufferMask.ColorBufferBit);
+            Graphics.SetClearColor(Camera.ClearColor);
+            Graphics.Clear(ClearMask.Color);
 
-            Shader.UseShader(DefaultMaterial.Shader);
+            Graphics.UseShader(DefaultMaterial.Shader);
 
+#if false
             // FIXME: Loop through all entities and draw them.
-            for (int i = 0; i < Entities.Count; i++)
+            for (int i = 0; i < RenderEntities.Count; i++)
             {
-                Entity entity = Entities[i];
+                Entity entity = RenderEntities[i];
 
                 // If there is nothing to render, skip it.
                 if (entity.Mesh == null)
                     continue;
 
-                Shader.UseShader(entity.Mesh.Material.Shader);
-                // FIXME: Default albedo and normal textures.
-                GL.BindTextureUnit(0, entity.Mesh.Material.Albedo?.Handle ?? DefaultAlbedo.Handle);
-                GL.BindTextureUnit(1, entity.Mesh.Material.Normal?.Handle ?? DefaultNormal.Handle);
+                Graphics.UseShader(entity.Mesh.Material.Shader);
+
+                Graphics.BindTexture(0, entity.Mesh.Material.Albedo ?? DefaultAlbedo);
+                Graphics.BindTexture(1, entity.Mesh.Material.Normal ?? DefaultNormal);
 
                 // Bind the light buffer handle
-                GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 0, LightBuffer.Handle);
+                Graphics.BindShaderStorageBlock(0, LightBuffer);
 
                 // FIXME: Make calculating these more efficient?
                 Matrix4 modelMatrix = GetLocalToWorldTransform(entity);
@@ -288,31 +439,78 @@ namespace DD2470_Clustered_Volume_Renderer
                     GL.Uniform1(20, 0.5f);
                 }
 
-                GL.VertexArrayVertexBuffer(VAO, 0, entity.Mesh.PositionBuffer.Handle, 0, sizeof(Vector3h));
-                GL.VertexArrayVertexBuffer(VAO, 1, entity.Mesh.AttributeBuffer.Handle, 0, sizeof(VertexAttributes));
-                GL.VertexArrayElementBuffer(VAO, entity.Mesh.IndexBuffer.Handle);
+                Graphics.BindVertexAttributeBuffer(TheVAO, 0, entity.Mesh.PositionBuffer, 0, sizeof(Vector3h));
+                Graphics.BindVertexAttributeBuffer(TheVAO, 1, entity.Mesh.AttributeBuffer, 0, sizeof(VertexAttributes));
+                Graphics.SetElementBuffer(TheVAO, entity.Mesh.IndexBuffer);
 
-                var elementType = entity.Mesh.IndexBuffer.Size switch
+                var elementType = entity.Mesh.IndexSize switch
                 {
                     2 => DrawElementsType.UnsignedShort,
                     4 => DrawElementsType.UnsignedInt,
                     _ => throw new NotSupportedException(),
                 };
 
-                GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
+                GL.DrawElementsBaseVertex(PrimitiveType.Triangles, entity.Mesh.IndexCount, elementType, entity.Mesh.IndexByteOffset, entity.Mesh.BaseVertex);
+
+                //GL.DrawElements(PrimitiveType.Triangles, entity.Mesh.IndexBuffer.Count, elementType, 0);
             }
+#else
+            for (int i = 0; i < drawcalls.Count; i++)
+            {
+                Drawcall drawcall = drawcalls[i];
+
+                Graphics.UseShader(drawcall.Shader);
+
+                Graphics.BindTexture(0, drawcall.AlbedoTexture);
+                Graphics.BindTexture(1, drawcall.NormalTexture);
+
+                Graphics.BindShaderStorageBlock(0, LightBuffer);
+                Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
+
+                // FIXME: We assume the camera transform has no parent.
+                GL.Uniform3(10, Camera.Transform.LocalPosition);
+
+                if (drawcall.Shader == DefaultMaterialAlphaCutout.Shader)
+                {
+                    // Alpha cutout
+                    GL.Uniform1(20, 0.5f);
+                }
+
+                Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
+                Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
+                Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
+
+                var elementType = drawcall.IndexSize switch
+                {
+                    2 => DrawElementsType.UnsignedShort,
+                    4 => DrawElementsType.UnsignedInt,
+                    _ => throw new NotSupportedException(),
+                };
+
+                GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
+            }
+#endif
 
             GL.PopDebugGroup();
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Postprocess");
 
+            // Clean up instance data.
+            // FIXME: Do something smarter with the buffers??
+            for (int i = 0; i < drawcalls.Count; i++)
+            {
+                Drawcall drawcall = drawcalls[i];
+
+                Buffer.DeleteBuffer(drawcall.InstanceData);
+            }
+
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-            Shader.UseShader(Tonemap.Shader);
+            Graphics.UseShader(Tonemap.Shader);
 
-            GL.BindTextureUnit(0, HDRFramebuffer.ColorAttachment0.Handle);
+            Graphics.BindTexture(0, HDRFramebuffer.ColorAttachment0);
 
-            GL.DepthMask(false);
-            GL.ColorMask(true, true, true, true);
-            GL.DepthFunc(DepthFunction.Always);
+            Graphics.SetDepthWrite(false);
+            Graphics.SetColorWrite(ColorChannels.All);
+            Graphics.SetDepthFunc(DepthFunc.AlwaysPass);
 
             // Do the tonemap
             GL.DrawArrays(PrimitiveType.Triangles, 0, 3);

@@ -21,7 +21,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public Entity? Parent;
         public List<Entity> Children;
 
-        public Mesh? Mesh;
+        public Mesh2? Mesh;
         
         public Entity(string name, Transform transform, Entity? parent)
         {
@@ -104,6 +104,30 @@ namespace DD2470_Clustered_Volume_Renderer
             PositionBuffer = positionBuffer;
             AttributeBuffer = attributeBuffer;
             IndexBuffer = indexBuffer;
+            Material = material;
+        }
+    }
+
+    internal class Mesh2
+    {
+        public int BaseVertex;
+        public int IndexCount;
+        public int IndexSize;
+        public int IndexByteOffset;
+
+        public Material Material;
+
+        public Buffer PositionBuffer;
+        public Buffer AttributeBuffer;
+
+        public Buffer IndexBuffer;
+
+        public Mesh2(int baseVertex, int indexCount, int indexSize, int indexByteOffset, Material material)
+        {
+            BaseVertex = baseVertex;
+            IndexCount = indexCount;
+            IndexSize = indexSize;
+            IndexByteOffset = indexByteOffset;
             Material = material;
         }
     }
@@ -193,7 +217,13 @@ namespace DD2470_Clustered_Volume_Renderer
             watch.Stop();
             Console.WriteLine($"Loading textures took: {watch.Elapsed.TotalMilliseconds:0.000}ms");
 
-            List<Mesh> meshes = new List<Mesh>();
+            List<Vector3h> meshPositions = new List<Vector3h>();
+            List<VertexAttributes> meshAttributes = new List<VertexAttributes>();
+
+            // FIXME: Split meshes into 32-bit indices and 16-bit indices!
+            List<byte> meshElements = new List<byte>();
+
+            List<Mesh2> meshes = new List<Mesh2>();
             foreach (var mesh in scene.Meshes)
             {
                 /*
@@ -213,42 +243,64 @@ namespace DD2470_Clustered_Volume_Renderer
                 {
                     halfPositons[i] = (Vector3h)positions[i];
                 }
-                Buffer postionBuffer = Buffer.CreateBuffer($"{mesh.Name}_position", halfPositons, BufferStorageFlags.None);
+                int baseVertex = meshPositions.Count;
+                meshPositions.AddRange(halfPositons);
+                //Buffer postionBuffer = Buffer.CreateBuffer($"{mesh.Name}_position", halfPositons, BufferStorageFlags.None);
 
                 Span<Vector3D> normals = CollectionsMarshal.AsSpan(mesh.Normals);
                 // FIXME: Store the sign of the bitangent in there as well?
                 Span<Vector3D> tangents = CollectionsMarshal.AsSpan(mesh.Tangents);
                 Span<Vector3D> UVs = CollectionsMarshal.AsSpan(mesh.TextureCoordinateChannels[0]);
-                Buffer attributeBuffer = InterleaveBuffers($"{mesh.Name}_vertexattributes", normals, tangents, UVs);
+                VertexAttributes[] attribs = new VertexAttributes[normals.Length];
+                InterleaveBuffers(attribs, normals, tangents, UVs);
+                meshAttributes.AddRange(attribs);
 
-                Buffer indexBuffer;
+                int index_count;
+                int index_size;
+                int index_offset;
                 if (mesh.FaceCount * 3 > ushort.MaxValue)
                 {
-                    Span<uint> indices = mesh.GetUnsignedIndices().AsSpan();
-                    indexBuffer = Buffer.CreateBuffer($"{mesh.Name}_indices", indices, BufferStorageFlags.None);
+                    uint[] indices = mesh.GetUnsignedIndices();
+
+                    index_count = indices.Length;
+                    index_size = 4;
+                    index_offset = meshElements.Count;
+                    meshElements.AddRange(MemoryMarshal.Cast<uint, byte>(indices));
                 }
                 else
                 {
-                    Span<ushort> indices = MemoryMarshal.Cast<short, ushort>(mesh.GetShortIndices().AsSpan());
-                    indexBuffer = Buffer.CreateBuffer($"{mesh.Name}_indices", indices, BufferStorageFlags.None);
+                    short[] indices = mesh.GetShortIndices();
+
+                    index_count = indices.Length;
+                    index_size = 2;
+                    index_offset = meshElements.Count;
+                    meshElements.AddRange(MemoryMarshal.Cast<short, byte>(indices));
                 }
 
-                Mesh m = new Mesh(postionBuffer, attributeBuffer, indexBuffer, materials[mesh.MaterialIndex]);
+                //Mesh m = new Mesh(postionBuffer, attributeBuffer, indexBuffer, materials[mesh.MaterialIndex]);
+                Mesh2 m = new Mesh2(baseVertex, index_count, index_size, index_offset, materials[mesh.MaterialIndex]);
                 meshes.Add(m);
                 
-                static Buffer InterleaveBuffers(string name, Span<Vector3D> normals, Span<Vector3D> tangents, Span<Vector3D> UVs)
+                static void InterleaveBuffers(Span<VertexAttributes> interleaved, Span<Vector3D> normals, Span<Vector3D> tangents, Span<Vector3D> UVs)
                 {
-                    VertexAttributes[] attributes = new VertexAttributes[normals.Length];
-
-                    for (int i = 0; i < attributes.Length; i++)
+                    for (int i = 0; i < interleaved.Length; i++)
                     {
-                        attributes[i].Normal = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref normals[i]));
-                        attributes[i].Tangent = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref tangents[i]));
-                        attributes[i].UVs = Unsafe.As<Vector3D, Vector3>(ref UVs[i]).Xy;
+                        interleaved[i].Normal = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref normals[i]));
+                        interleaved[i].Tangent = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref tangents[i]));
+                        interleaved[i].UVs = Unsafe.As<Vector3D, Vector3>(ref UVs[i]).Xy;
                     }
-
-                    return Buffer.CreateBuffer(name, attributes, BufferStorageFlags.None);
                 }
+            }
+
+            Buffer positionBuffer = Buffer.CreateBuffer($"{scene.Name}_positions", meshPositions, BufferStorageFlags.None);
+            Buffer attributeBuffer = Buffer.CreateBuffer($"{scene.Name}_vertexattributes", meshAttributes, BufferStorageFlags.None);
+            Buffer indexBuffer = Buffer.CreateBuffer($"{scene.Name}_indices", meshElements, BufferStorageFlags.None);
+
+            foreach (Mesh2 mesh in meshes)
+            {
+                mesh.PositionBuffer = positionBuffer;
+                mesh.AttributeBuffer = attributeBuffer;
+                mesh.IndexBuffer = indexBuffer;
             }
 
             List<Entity> entities = new List<Entity>();
@@ -256,7 +308,7 @@ namespace DD2470_Clustered_Volume_Renderer
             rootEntity.Transform.LocalScale *= scale;
             return entities;
 
-            static Entity ProcessNode(Node node, Entity? parent, List<Entity> entities, List<Mesh> meshes)
+            static Entity ProcessNode(Node node, Entity? parent, List<Entity> entities, List<Mesh2> meshes)
             {
                 //Console.WriteLine($"Name: {node.Name}");
                 //Console.WriteLine($"  Has mesh: {node.HasMeshes}{(node.HasMeshes ? $" ({string.Join(", ", node.MeshIndices)})" : "")}");
@@ -275,7 +327,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 // For now we only support one mesh per node
                 Debug.Assert(node.MeshCount <= 1);
 
-                Mesh? mesh = null;
+                Mesh2? mesh = null;
                 if (node.MeshCount > 0)
                 {
                     mesh = meshes[node.MeshIndices[0]];

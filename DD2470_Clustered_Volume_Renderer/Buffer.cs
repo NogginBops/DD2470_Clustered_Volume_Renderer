@@ -75,5 +75,12 @@ namespace DD2470_Clustered_Volume_Renderer
         {
             return CreateBuffer(name, CollectionsMarshal.AsSpan(data), flags);
         }
+
+        public static unsafe void DeleteBuffer(Buffer buffer)
+        {
+            // FIXME: Potentially do some work to unbind this buffer?
+            GL.DeleteBuffer(buffer.Handle);
+            buffer.Handle = 0;
+        }
     }
 }

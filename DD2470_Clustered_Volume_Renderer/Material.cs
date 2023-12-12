@@ -21,5 +21,29 @@ namespace DD2470_Clustered_Volume_Renderer
             Shader = shader;
             PrepassShader = prepassShader;
         }
+
+        public static int Compare(Material? mat1, Material? mat2)
+        {
+            if (mat1 == null && mat2 == null) return 0;
+            if (mat1 == null) return 1;
+            if (mat2 == null) return -1;
+
+            int comp = mat1.Shader.Handle.CompareTo(mat2.Shader.Handle);
+            if (comp != 0) return comp;
+
+            comp = (mat1.PrepassShader?.Handle ?? 0).CompareTo(mat2.PrepassShader?.Handle ?? 0);
+            if (comp != 0) return comp;
+
+            comp = (mat1.Albedo?.Handle ?? 0).CompareTo(mat2.Albedo?.Handle ?? 0);
+            if (comp != 0) return comp;
+
+            comp = (mat1.Normal?.Handle ?? 0).CompareTo(mat2.Normal?.Handle ?? 0);
+            if (comp != 0) return comp;
+
+            comp = (mat1.Roughness?.Handle ?? 0).CompareTo(mat2.Roughness?.Handle ?? 0);
+            if (comp != 0) return comp;
+
+            return 0;
+        }
     }
 }

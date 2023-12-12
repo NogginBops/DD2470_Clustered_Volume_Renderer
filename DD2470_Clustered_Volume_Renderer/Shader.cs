@@ -17,18 +17,6 @@ namespace DD2470_Clustered_Volume_Renderer
             Handle = handle;
         }
 
-
-        public static Shader? currentShader;
-        public static void UseShader(Shader? shader)
-        {
-            // FIXME: Maybe compare the handle itself?
-            if (currentShader != shader)
-            {
-                GL.UseProgram(shader?.Handle ?? 0);
-                currentShader = shader;
-            }
-        }
-
         public static Shader CreateVertexFragment(string name, string vertexPath, string fragmentPath)
         {
             string vertexSource = File.ReadAllText(vertexPath);
