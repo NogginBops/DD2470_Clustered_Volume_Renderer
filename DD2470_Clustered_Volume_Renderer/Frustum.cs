@@ -25,6 +25,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Vector3 rbf = Vector3.TransformPerspective((+1, -1, +1), invVP);
             Vector3 rtf = Vector3.TransformPerspective((+1, +1, +1), invVP);
 
+            // Check that all the lbn type var are correct, and that the cross products are correct..
             Vector3 left_normal = Vector3.Normalize(Vector3.Cross(lbf - lbn, ltn - lbn));
             Vector3 right_normal = Vector3.Normalize(Vector3.Cross(rtn - rbn, rbf - rbn));
             Vector3 top_normal = Vector3.Normalize(Vector3.Cross(ltn - rtn, rtf - rtn));
@@ -32,13 +33,17 @@ namespace DD2470_Clustered_Volume_Renderer
             Vector3 near_normal = Vector3.Normalize(Vector3.Cross(ltn - lbn, rbn - lbn));
             Vector3 far_normal = Vector3.Normalize(Vector3.Cross(rtf - rbf, lbf - rbf));
 
+            var left2 = System.Numerics.Plane.CreateFromVertices(lbn.ToNumerics(), ltn.ToNumerics(), lbf.ToNumerics());
+            var left3 = System.Numerics.Plane.CreateFromVertices(ltn.ToNumerics(), lbn.ToNumerics(), lbf.ToNumerics());
+            var left = new System.Numerics.Plane(left_normal.AsNumerics(), -Vector3.Dot(left_normal, lbn));
+
             Frustum frustum = new Frustum();
-            frustum.Near = new System.Numerics.Plane(Unsafe.As<Vector3, System.Numerics.Vector3>(ref near_normal), -Vector3.Dot(near_normal, lbn));
-            frustum.Far = new System.Numerics.Plane(Unsafe.As<Vector3, System.Numerics.Vector3>(ref far_normal), -Vector3.Dot(far_normal, lbf));
-            frustum.Left = new System.Numerics.Plane(Unsafe.As<Vector3, System.Numerics.Vector3>(ref left_normal), -Vector3.Dot(left_normal, lbn));
-            frustum.Right = new System.Numerics.Plane(Unsafe.As<Vector3, System.Numerics.Vector3>(ref right_normal), -Vector3.Dot(right_normal, rbn));
-            frustum.Top = new System.Numerics.Plane(Unsafe.As<Vector3, System.Numerics.Vector3>(ref top_normal), -Vector3.Dot(top_normal, ltn));
-            frustum.Bottom = new System.Numerics.Plane(Unsafe.As<Vector3, System.Numerics.Vector3>(ref bottom_normal), -Vector3.Dot(bottom_normal, lbn));
+            frustum.Near = new System.Numerics.Plane(near_normal.AsNumerics(), -Vector3.Dot(near_normal, lbn));
+            frustum.Far = new System.Numerics.Plane(far_normal.AsNumerics(), -Vector3.Dot(far_normal, lbf));
+            frustum.Left = new System.Numerics.Plane(left_normal.AsNumerics(), -Vector3.Dot(left_normal, lbn));
+            frustum.Right = new System.Numerics.Plane(right_normal.AsNumerics(), -Vector3.Dot(right_normal, rbn));
+            frustum.Top = new System.Numerics.Plane(top_normal.AsNumerics(), -Vector3.Dot(top_normal, ltn));
+            frustum.Bottom = new System.Numerics.Plane(bottom_normal.AsNumerics(), -Vector3.Dot(bottom_normal, lbn));
             return frustum;
         }
 
@@ -55,12 +60,14 @@ namespace DD2470_Clustered_Volume_Renderer
             corners[7] = new System.Numerics.Vector4(aabb.Max.X, aabb.Max.Y, aabb.Max.Z, 1f);
 
             Span<System.Numerics.Plane> planes = stackalloc System.Numerics.Plane[6];
-            planes[0] = frustum.Left;
-            planes[1] = frustum.Right;
+            planes[0] = frustum.Near;
+            planes[1] = frustum.Far; // frustum.Far;
             planes[2] = frustum.Top;
             planes[3] = frustum.Bottom;
-            planes[4] = frustum.Near;
-            planes[5] = frustum.Far;
+            planes[4] = frustum.Left;
+            planes[5] = frustum.Right;
+
+            planes = [frustum.Left];
 
             foreach (System.Numerics.Plane plane in planes)
             {
@@ -69,7 +76,9 @@ namespace DD2470_Clustered_Volume_Renderer
                 {
                     if (System.Numerics.Plane.Dot(plane, corner) > 0)
                     {
-                        inside_plane = false;
+                        if (plane == frustum.Near)
+                            ;
+                        inside_plane = true;
                         break;
                     }
                 }

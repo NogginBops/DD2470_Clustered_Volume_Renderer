@@ -1,4 +1,5 @@
-﻿using OpenTK.Graphics.OpenGL4;
+﻿using ImGuiNET;
+using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
@@ -6,10 +7,10 @@ using OpenTK.Windowing.GraphicsLibraryFramework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-using static Assimp.Metadata;
 
 namespace DD2470_Clustered_Volume_Renderer
 {
@@ -35,6 +36,8 @@ namespace DD2470_Clustered_Volume_Renderer
         {
         }
 
+        public ImGuiController ImGuiController;
+
         public VAO TheVAO;
 
         // FIXME: Handle framebuffer resize!
@@ -43,6 +46,8 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public Texture DefaultAlbedo;
         public Texture DefaultNormal;
+
+        public Material DebugMaterial;
 
         public Material DefaultMaterial;
         public Material DefaultMaterialAlphaCutout;
@@ -53,18 +58,26 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material HiZPass;
 
         public Camera Camera;
+        public Camera Camera2;
         public List<Entity> Entities;
 
         public Buffer LightBuffer;
         public List<PointLight> Lights = new List<PointLight>();
 
+        public Mesh2 CubeMesh;
+
         protected override void OnLoad()
         {
             base.OnLoad();
 
+            ImGuiController = new ImGuiController(FramebufferSize.X, FramebufferSize.Y);
+            
             HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", FramebufferSize.X, FramebufferSize.Y);
 
             HiZMipFramebuffer = Framebuffer.CreateHiZFramebuffer("HI-Z Framebuffer", FramebufferSize.X, FramebufferSize.Y);
+
+            Shader debugShader = Shader.CreateVertexFragment("Debug Shader", "./Shaders/debug.vert", "./Shaders/debug.frag");
+            DebugMaterial = new Material(debugShader, null);
 
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             Shader defaultShaderPrepass = Shader.CreateVertexFragment("Default Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
@@ -73,6 +86,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Shader defaultShaderAlphaCutoutPrepass = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout_prepass.frag");
             DefaultMaterialAlphaCutout = new Material(defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
 
+            CubeMesh = Model.CreateCube((1, 1, 1), DebugMaterial);
 
             // FIXME: Make the tonemapping more consistent?
             Shader tonemapShader = Shader.CreateVertexFragment("Tonemap Shader", "./Shaders/fullscreen.vert", "./Shaders/tonemap.frag");
@@ -88,6 +102,8 @@ namespace DD2470_Clustered_Volume_Renderer
             DefaultNormal = Texture.FromColor(new Color4(0.5f, 0.5f, 1f, 1f), false);
 
             Camera = new Camera(90, Size.X / (float)Size.Y, 0.1f, 10000f);
+            Camera2 = new Camera(70, Size.X / (float)Size.Y, 50f, 1000f);
+            Camera2.Transform.LocalPosition += (0, 100, 0);
 
             //Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
@@ -128,15 +144,14 @@ namespace DD2470_Clustered_Volume_Renderer
             Graphics.LinkAttributeBufferBinding(TheVAO, 1, 1);
             Graphics.LinkAttributeBufferBinding(TheVAO, 2, 1);
             Graphics.LinkAttributeBufferBinding(TheVAO, 3, 1);
-            Graphics.SetVertexAttribute(TheVAO, 1, true, 4, VertexAttribType.Int2101010Rev, false, 0);
-            Graphics.SetVertexAttribute(TheVAO, 2, true, 4, VertexAttribType.Int2101010Rev, false, 4);
+            Graphics.SetVertexAttribute(TheVAO, 1, true, 4, VertexAttribType.Int2101010Rev, true, 0);
+            Graphics.SetVertexAttribute(TheVAO, 2, true, 4, VertexAttribType.Int2101010Rev, true, 4);
             Graphics.SetVertexAttribute(TheVAO, 3, true, 2, VertexAttribType.Float, false, 8);
 
             Graphics.BindVertexArray(TheVAO);
 
             // FIXME: Make a graphics thing for this...
             GL.Enable(EnableCap.DepthTest);
-            GL.Enable(EnableCap.CullFace);
             Graphics.SetCullMode(CullMode.CullBackFacing);
             Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
             Graphics.SetDepthWrite(true);
@@ -155,10 +170,11 @@ namespace DD2470_Clustered_Volume_Renderer
 
             GL.DeleteFramebuffer(HiZMipFramebuffer.Handle);
             GL.DeleteTexture(HiZMipFramebuffer.ColorAttachment0.Handle);
-            GL.DeleteTexture(HiZMipFramebuffer.DepthStencilAttachment.Handle);
             HiZMipFramebuffer = Framebuffer.CreateHiZFramebuffer("HI-Z Framebuffer", e.Width, e.Height);
 
             Camera.AspectRatio = e.Width / (float)e.Height;
+
+            ImGuiController.WindowResized(e.Width, e.Height);
         }
 
         protected override void OnUpdateFrame(FrameEventArgs args)
@@ -168,6 +184,18 @@ namespace DD2470_Clustered_Volume_Renderer
             float deltaTime = (float)args.Time;
 
             Camera.UpdateEditorCamera(Camera, KeyboardState, MouseState, deltaTime);
+
+            // This starts a imgui frame.
+            ImGuiController.Update(this, deltaTime);
+
+            if (ImGui.Begin("Camera"))
+            {
+                ImGui.SeparatorText("Camera 2");
+                ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera2.Transform.LocalPosition));
+                ImGui.DragFloat("Rotation X", ref Camera2.XAxisRotation);
+                ImGui.DragFloat("Rotation Y", ref Camera2.YAxisRotation);
+            }
+            ImGui.End();
 
             if (KeyboardState.IsKeyPressed(Keys.Escape))
             {
@@ -188,6 +216,10 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Title = $"{args.Time*1000:0.000}ms ({1/args.Time:0.00} fps)";
         }
+
+        // How do I want to represent entity draw data?
+        // I do a pass over all the entities wherer I gather all of their transforms?
+        // Then I do a frustum culling pass over that?
 
         struct Drawcall
         {
@@ -232,87 +264,114 @@ namespace DD2470_Clustered_Volume_Renderer
             public Matrix4 NormalMatrix;
         }
 
+        struct EntityRenderData
+        {
+            public bool Culled;
+            public Entity Entity;
+            public Matrix4 ModelMatrix;
+        }
+
         protected unsafe override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
 
-            List<Entity> RenderEntities = new List<Entity>(Entities);
-            RenderEntities.Sort((e1, e2) => Material.Compare(e1.Mesh?.Material, e2.Mesh?.Material));
+            Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
+            Matrix4 projectionMatrix = Camera.ProjectionMatrix;
+            Matrix4 vp = viewMatrix * projectionMatrix;
 
-            Frustum frustum = Frustum.FromCamera(Camera);
-            for (int i = 0; i < RenderEntities.Count; i++)
+            // FIXME: Do not create a new list every frame...
+            // FIXME: Linq
+            List<EntityRenderData> RenderEntities = new List<EntityRenderData>(Entities.Select(e => new EntityRenderData() { Entity = e }));
+
             {
-                Entity entity = RenderEntities[i];
-                if (entity.Mesh == null)
-                    continue;
-
-                // FIXME: Something weird is going on...
-                Box3 AABB = RecalculateAABB(entity.Mesh.AABB, GetLocalToWorldTransform(entity));
-                if (Frustum.IntersectsAABB(frustum, AABB))
+                // Calculate transformation matrices
+                Span<EntityRenderData> RenderEntitiesSpan = CollectionsMarshal.AsSpan(RenderEntities);
+                for (int i = 0; i < RenderEntities.Count; i++)
                 {
-                    Console.WriteLine($"Intersects! {entity.Name}");
-                }
-
-                static Box3 RecalculateAABB(Box3 AABB, Matrix4 localToWorld)
-                {
-                    // http://www.realtimerendering.com/resources/GraphicsGems/gems/TransBox.c
-
-                    // FIXME:
-                    //var l2w = transform.LocalToWorld;
-                    Matrix4 l2w = localToWorld;
-                    Matrix3 rotation = new Matrix3(l2w);
-                    Vector3 translation = l2w.Row3.Xyz;
-
-                    Span<float> Amin = stackalloc float[3];
-                    Span<float> Amax = stackalloc float[3];
-                    Span<float> Bmin = stackalloc float[3];
-                    Span<float> Bmax = stackalloc float[3];
-
-                    Amin[0] = AABB.Min.X; Amax[0] = AABB.Max.X;
-                    Amin[1] = AABB.Min.Y; Amax[1] = AABB.Max.Y;
-                    Amin[2] = AABB.Min.Z; Amax[2] = AABB.Max.Z;
-
-                    Bmin[0] = Bmax[0] = translation.X;
-                    Bmin[1] = Bmax[1] = translation.Y;
-                    Bmin[2] = Bmax[2] = translation.Z;
-
-                    for (int i = 0; i < 3; i++)
-                    {
-                        for (int j = 0; j < 3; j++)
-                        {
-                            var a = rotation[j, i] * Amin[j];
-                            var b = rotation[j, i] * Amax[j];
-                            Bmin[i] += a < b ? a : b;
-                            Bmax[i] += a < b ? b : a;
-                        }
-                    }
-
-                    return new Box3(Bmin[0], Bmin[1], Bmin[2], Bmax[0], Bmax[1], Bmax[2]);
+                    RenderEntitiesSpan[i].Culled = RenderEntitiesSpan[i].Entity.Mesh == null;
+                    RenderEntitiesSpan[i].ModelMatrix = GetLocalToWorldTransform(RenderEntities[i].Entity);
                 }
             }
 
+            RenderEntities.Sort((e1, e2) => Material.Compare(e1.Entity.Mesh?.Material, e2.Entity.Mesh?.Material));
+
+            {
+                // Add a debug visualization for this?
+                Span<EntityRenderData> RenderEntitiesSpan = CollectionsMarshal.AsSpan(RenderEntities);
+                Frustum frustum = Frustum.FromCamera(Camera2);
+                for (int i = 0; i < RenderEntities.Count; i++)
+                {
+                    ref EntityRenderData renderData = ref RenderEntitiesSpan[i];
+                    if (renderData.Entity.Mesh == null)
+                        continue;
+
+                    // FIXME: Something weird is going on...
+                    Box3 AABB = RecalculateAABB(renderData.Entity.Mesh.AABB, renderData.ModelMatrix);
+                    if (Frustum.IntersectsAABB(frustum, AABB) == false)
+                    {
+                        //Console.WriteLine($"Intersects! {renderData.Entity.Name}");
+                        renderData.Culled = true;
+                    }
+
+                    static Box3 RecalculateAABB(Box3 AABB, Matrix4 localToWorld)
+                    {
+                        // http://www.realtimerendering.com/resources/GraphicsGems/gems/TransBox.c
+
+                        // FIXME:
+                        //var l2w = transform.LocalToWorld;
+                        Matrix4 l2w = localToWorld;
+                        Matrix3 rotation = new Matrix3(l2w);
+                        Vector3 translation = l2w.Row3.Xyz;
+
+                        Span<float> Amin = stackalloc float[3];
+                        Span<float> Amax = stackalloc float[3];
+                        Span<float> Bmin = stackalloc float[3];
+                        Span<float> Bmax = stackalloc float[3];
+
+                        Amin[0] = AABB.Min.X; Amax[0] = AABB.Max.X;
+                        Amin[1] = AABB.Min.Y; Amax[1] = AABB.Max.Y;
+                        Amin[2] = AABB.Min.Z; Amax[2] = AABB.Max.Z;
+
+                        Bmin[0] = Bmax[0] = translation.X;
+                        Bmin[1] = Bmax[1] = translation.Y;
+                        Bmin[2] = Bmax[2] = translation.Z;
+
+                        for (int i = 0; i < 3; i++)
+                        {
+                            for (int j = 0; j < 3; j++)
+                            {
+                                var a = rotation[j, i] * Amin[j];
+                                var b = rotation[j, i] * Amax[j];
+                                Bmin[i] += a < b ? a : b;
+                                Bmax[i] += a < b ? b : a;
+                            }
+                        }
+
+                        return new Box3(Bmin[0], Bmin[1], Bmin[2], Bmax[0], Bmax[1], Bmax[2]);
+                    }
+                }
+            }
+
+            // Remove all culled entities from the list
+            RenderEntities.RemoveAll(e => e.Culled);
 
             List<Drawcall> drawcalls = new List<Drawcall>();
             for (int i = 0; i < RenderEntities.Count; i++)
             {
-                Entity baseEntity = RenderEntities[i];
-                if (baseEntity.Mesh == null)
+                EntityRenderData baseRenderData = RenderEntities[i];
+                if (baseRenderData.Entity.Mesh == null)
                     continue;
 
                 int instanceCount = 1;
-                while (i + instanceCount < RenderEntities.Count && CanInstance(baseEntity, RenderEntities[i + instanceCount]))
+                while (i + instanceCount < RenderEntities.Count && CanInstance(baseRenderData.Entity, RenderEntities[i + instanceCount].Entity))
                 {
                     instanceCount++;
                 }
 
-                Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
-                Matrix4 projectionMatrix = Camera.ProjectionMatrix;
-                Matrix4 vp = viewMatrix * projectionMatrix;
-
                 InstanceData[] instanceData = new InstanceData[instanceCount];
                 for (int instance = 0; instance < instanceData.Length; instance++)
                 {
-                    Matrix4 modelMatrix = GetLocalToWorldTransform(RenderEntities[i + instance]);
+                    Matrix4 modelMatrix = RenderEntities[i + instance].ModelMatrix;
                     Matrix4 mvp = modelMatrix * vp;
                     Matrix3 normalMatrix = Matrix3.Transpose(new Matrix3(modelMatrix).Inverted());
 
@@ -323,18 +382,18 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 Drawcall drawcall = new Drawcall
                 {
-                    PositionBuffer = baseEntity.Mesh.PositionBuffer,
-                    AttributeBuffer = baseEntity.Mesh.AttributeBuffer,
-                    IndexBuffer = baseEntity.Mesh.IndexBuffer,
-                    Shader = baseEntity.Mesh.Material.Shader,
-                    PrepassShader = baseEntity.Mesh.Material.PrepassShader,
-                    AlbedoTexture = baseEntity.Mesh.Material.Albedo ?? DefaultAlbedo,
-                    NormalTexture = baseEntity.Mesh.Material.Normal ?? DefaultNormal,
+                    PositionBuffer = baseRenderData.Entity.Mesh.PositionBuffer,
+                    AttributeBuffer = baseRenderData.Entity.Mesh.AttributeBuffer,
+                    IndexBuffer = baseRenderData.Entity.Mesh.IndexBuffer,
+                    Shader = baseRenderData.Entity.Mesh.Material.Shader,
+                    PrepassShader = baseRenderData.Entity.Mesh.Material.PrepassShader,
+                    AlbedoTexture = baseRenderData.Entity.Mesh.Material.Albedo ?? DefaultAlbedo,
+                    NormalTexture = baseRenderData.Entity.Mesh.Material.Normal ?? DefaultNormal,
                     InstanceCount = instanceCount,
-                    BaseVertex = baseEntity.Mesh.BaseVertex,
-                    IndexCount = baseEntity.Mesh.IndexCount,
-                    IndexByteOffset = baseEntity.Mesh.IndexByteOffset,
-                    IndexSize = baseEntity.Mesh.IndexSize,
+                    BaseVertex = baseRenderData.Entity.Mesh.BaseVertex,
+                    IndexCount = baseRenderData.Entity.Mesh.IndexCount,
+                    IndexByteOffset = baseRenderData.Entity.Mesh.IndexByteOffset,
+                    IndexSize = baseRenderData.Entity.Mesh.IndexSize,
                     // FIXME: We are allocating this every frame?
                     InstanceData = Buffer.CreateBuffer("", instanceData, BufferStorageFlags.None)
                 };
@@ -363,12 +422,16 @@ namespace DD2470_Clustered_Volume_Renderer
                 }
             }
 
+            Graphics.SetDepthWrite(true);
+            Graphics.SetColorWrite(ColorChannels.All);
             Graphics.SetClearColor(Color4.Black);
             Graphics.Clear(ClearMask.Color | ClearMask.Depth | ClearMask.Stencil);
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
 
             // FIXME: Reverse Z?
+
+            Graphics.SetCullMode(CullMode.CullBackFacing);
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Depth prepass");
             {
@@ -392,6 +455,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
                     Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
 
+                    // FIXME: maybe use the buffer element size here instead of sizeof()?
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
                     Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
@@ -495,6 +559,7 @@ namespace DD2470_Clustered_Volume_Renderer
                         GL.Uniform1(20, 0.5f);
                     }
 
+                    // FIXME: maybe use the buffer element size here instead of sizeof()?
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
                     Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
@@ -508,6 +573,48 @@ namespace DD2470_Clustered_Volume_Renderer
 
                     GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
                 }
+            }
+            GL.PopDebugGroup();
+
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Debug pass");
+            {
+                Graphics.SetDepthWrite(false);
+                Graphics.SetColorWrite(ColorChannels.All);
+                Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
+                Graphics.SetCullMode(CullMode.CullNone);
+
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
+
+                Graphics.UseShader(CubeMesh.Material.Shader);
+
+                Matrix4 view = Camera2.Transform.ParentToLocal;
+                Matrix4 proj = Camera2.ProjectionMatrix;
+                Matrix4 invVP = (/*view */ proj).Inverted();
+
+                Matrix4 model = Camera2.Transform.LocalToParent;
+                Matrix4 mvp = model * vp;
+                Matrix3 normal = Matrix3.Transpose(new Matrix3(model).Inverted());
+
+                GL.UniformMatrix4(0, true, ref mvp);
+                GL.UniformMatrix4(1, true, ref model);
+                GL.UniformMatrix3(2, true, ref normal);
+                GL.UniformMatrix4(3, true, ref invVP);
+
+                Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
+                Graphics.BindVertexAttributeBuffer(TheVAO, 1, CubeMesh.AttributeBuffer, 0, sizeof(VertexAttributes));
+                Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);
+
+                var elementType = CubeMesh.IndexSize switch
+                {
+                    2 => DrawElementsType.UnsignedShort,
+                    4 => DrawElementsType.UnsignedInt,
+                    _ => throw new NotSupportedException(),
+                };
+
+                GL.DrawElements(PrimitiveType.Triangles, CubeMesh.IndexCount, elementType, CubeMesh.IndexByteOffset);
+
+                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+                Graphics.SetCullMode(CullMode.CullBackFacing);
             }
             GL.PopDebugGroup();
 
@@ -536,6 +643,12 @@ namespace DD2470_Clustered_Volume_Renderer
             }
             GL.PopDebugGroup();
 
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "ImGui");
+            {
+                ImGuiController.Render();
+            }
+            GL.PopDebugGroup();
+
             SwapBuffers();
 
             // FIXME: Move to entity?
@@ -549,6 +662,20 @@ namespace DD2470_Clustered_Volume_Renderer
                 } while (entity != null);
                 return matrix;
             }
+        }
+
+        protected override void OnTextInput(TextInputEventArgs e)
+        {
+            base.OnTextInput(e);
+
+            ImGuiController.PressChar((char)e.Unicode);
+        }
+
+        protected override void OnMouseWheel(MouseWheelEventArgs e)
+        {
+            base.OnMouseWheel(e);
+
+            ImGuiController.MouseScroll(e.Offset);
         }
     }
 }

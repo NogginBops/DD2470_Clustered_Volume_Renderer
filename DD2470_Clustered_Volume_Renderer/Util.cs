@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -12,6 +13,32 @@ namespace DD2470_Clustered_Volume_Renderer
         public const float D2R = MathF.PI / 180f;
         public const float R2D = 180f / MathF.PI;
 
+        public static System.Numerics.Vector3 ToNumerics(this Vector3 vec3) =>
+          Unsafe.As<Vector3, System.Numerics.Vector3>(ref vec3);
+
+        public static ref System.Numerics.Vector3 AsNumerics(ref this Vector3 vec3) =>
+            ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref vec3);
+
+        public static ref Vector3 AsOpenTK(ref this System.Numerics.Vector3 vec3) =>
+            ref Unsafe.As<System.Numerics.Vector3, Vector3>(ref vec3);
+
+        public static ref System.Numerics.Vector4 AsNumerics(ref this Vector4 vec4) =>
+            ref Unsafe.As<Vector4, System.Numerics.Vector4>(ref vec4);
+
+        public static ref Vector4 AsNumerics(ref this System.Numerics.Vector4 vec4) =>
+            ref Unsafe.As<System.Numerics.Vector4, Vector4>(ref vec4);
+
+        public static ref System.Numerics.Quaternion AsNumerics(ref this Quaternion quat) =>
+            ref Unsafe.As<Quaternion, System.Numerics.Quaternion>(ref quat);
+
+        public static ref Quaternion AsOpenTK(ref this System.Numerics.Quaternion quat) =>
+            ref Unsafe.As<System.Numerics.Quaternion, Quaternion>(ref quat);
+
+        public static ref System.Numerics.Vector4 AsNumerics4(ref this Color4 col) =>
+            ref Unsafe.As<Color4, System.Numerics.Vector4>(ref col);
+
+        public static ref System.Numerics.Vector3 AsNumerics3(ref this Color4 col) =>
+            ref Unsafe.As<Color4, System.Numerics.Vector3>(ref col);
 
         public static Vector3 NextVector3(this Random random, Vector3 min, Vector3 max)
         {

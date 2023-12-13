@@ -47,6 +47,7 @@ namespace DD2470_Clustered_Volume_Renderer
             }
         }
 
+        private static bool CullEnabled = false;
         private static CullMode CurrentCullMode = CullMode.CullNone;
         public static void SetCullMode(CullMode cullMode)
         {
@@ -61,7 +62,21 @@ namespace DD2470_Clustered_Volume_Renderer
                     _ => throw new ArgumentException($"Unknown cull mode: {cullMode}", nameof(cullMode)),
                 };
 
-                GL.CullFace(glCullMode);
+                if (glCullMode == 0 && CullEnabled)
+                {
+                    GL.Disable(EnableCap.CullFace);
+                    CullEnabled = false;
+                }
+                else if (glCullMode != 0 && CullEnabled == false)
+                {
+                    GL.Enable(EnableCap.CullFace);
+                    CullEnabled = true;
+                }
+
+                if (glCullMode != 0)
+                {
+                    GL.CullFace(glCullMode);
+                }
 
                 CurrentCullMode = cullMode;
             }

@@ -352,5 +352,124 @@ namespace DD2470_Clustered_Volume_Renderer
                 return ent;
             }
         }
+
+        public static Mesh2 CreateCube(Vector3 halfSize, Material material)
+        {
+            // front & back wrong winding
+            // bottom wrong winding.
+
+
+            Span<Vector3h> positions = stackalloc Vector3h[]
+            {
+                // Front
+                (Vector3h)(Vector3)(-halfSize.X, -halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, -halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, +halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, +halfSize.Y, +halfSize.Z),
+
+                // Back
+                (Vector3h)(Vector3)(-halfSize.X, -halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, +halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, +halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, -halfSize.Y, -halfSize.Z),
+
+                // Left
+                (Vector3h)(Vector3)(-halfSize.X, -halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, +halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, +halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, -halfSize.Y, -halfSize.Z),
+
+                // Right
+                (Vector3h)(Vector3)(+halfSize.X, -halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, +halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, +halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, -halfSize.Y, +halfSize.Z),
+
+                // Top
+                (Vector3h)(Vector3)(+halfSize.X, +halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, +halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, +halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, +halfSize.Y, +halfSize.Z),
+
+                // Bottom
+                (Vector3h)(Vector3)(-halfSize.X, -halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, -halfSize.Y, -halfSize.Z),
+                (Vector3h)(Vector3)(+halfSize.X, -halfSize.Y, +halfSize.Z),
+                (Vector3h)(Vector3)(-halfSize.X, -halfSize.Y, +halfSize.Z),
+            };
+
+            Span<VertexAttributes> attribs = stackalloc VertexAttributes[]
+            {
+                // Front
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, +1)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (0, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, +1)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (1, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, +1)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (1, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, +1)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (0, 1) },
+
+                // Back
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, -1)), Tangent = PackedNormal.Pack((+1, 0, 0)), UVs = (1, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, -1)), Tangent = PackedNormal.Pack((+1, 0, 0)), UVs = (1, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, -1)), Tangent = PackedNormal.Pack((+1, 0, 0)), UVs = (0, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, 0, -1)), Tangent = PackedNormal.Pack((+1, 0, 0)), UVs = (0, 0) },
+
+                // Left
+                new VertexAttributes() { Normal = PackedNormal.Pack((+1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, +1)), UVs = (1, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((+1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, +1)), UVs = (1, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((+1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, +1)), UVs = (0, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((+1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, +1)), UVs = (0, 0) },
+
+                // Right
+                new VertexAttributes() { Normal = PackedNormal.Pack((-1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, -1)), UVs = (1, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((-1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, -1)), UVs = (1, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((-1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, -1)), UVs = (0, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((-1, 0, 0)), Tangent = PackedNormal.Pack((0, 0, -1)), UVs = (0, 0) },
+
+                // Top
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, +1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (1, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, +1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (1, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, +1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (0, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, +1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (0, 0) },
+
+                // Bottom
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, -1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (0, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, -1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (1, 0) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, -1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (1, 1) },
+                new VertexAttributes() { Normal = PackedNormal.Pack((0, -1, 0)), Tangent = PackedNormal.Pack((-1, 0, 0)), UVs = (0, 1) },
+            };
+
+            Span<ushort> indices = stackalloc ushort[]
+            {
+                // Front
+                0, 1, 2, 2, 3, 0,
+
+                // Back
+                4, 5, 6, 6, 7, 4,
+
+                // Left
+                8, 9, 10, 10, 11, 8,
+
+                // Right
+                12, 13, 14, 14, 15, 12,
+
+                // Top
+                16, 17, 18, 18, 19, 16,
+
+                // Bottom 
+                20, 21, 22, 22, 23, 20,
+            };
+
+            Buffer positionBuffer = Buffer.CreateBuffer("Cube_positions", positions, BufferStorageFlags.None);
+            Buffer attribBuffer = Buffer.CreateBuffer("Cube_vertexattribs", attribs, BufferStorageFlags.None);
+            Buffer indexBuffer = Buffer.CreateBuffer("Cube_index", indices, BufferStorageFlags.None);
+
+            Mesh2 m = new Mesh2(0, indices.Length, 2, 0, material);
+            m.PositionBuffer = positionBuffer;
+            m.AttributeBuffer = attribBuffer;
+            m.IndexBuffer = indexBuffer;
+
+            m.AABB = new Box3(-halfSize, halfSize);
+
+            return m;
+        }
     }
 }
