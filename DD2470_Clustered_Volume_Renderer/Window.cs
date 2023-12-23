@@ -98,7 +98,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Shader hiZPass = Shader.CreateVertexFragment("HiZ Pass Shader", "./Shaders/fullscreen.vert", "./Shaders/HiZMip.frag");
             HiZPass = new Material(hiZPass, null);
 
-            Shader hiZDepthCopy = Shader.CreateVertexFragment("HiZ Pass Shader", "./Shaders/fullscreen.vert", "./Shaders/DepthToTexture.frag");
+            Shader hiZDepthCopy = Shader.CreateVertexFragment("HiZ copy depth Shader", "./Shaders/fullscreen.vert", "./Shaders/depth_to_texture.frag");
             HiZDepthCopy = new Material(hiZDepthCopy, null);
 
             DefaultAlbedo = Texture.FromColor(Color4.White, true);
@@ -258,6 +258,7 @@ namespace DD2470_Clustered_Volume_Renderer
             public int IndexSize;
 
             public Buffer InstanceData;
+            public int InstanceOffset;
         }
 
         struct MaterialData
@@ -278,7 +279,7 @@ namespace DD2470_Clustered_Volume_Renderer
         {
             public Matrix4 ModelMatrix;
             public Matrix4 MVP;
-            // Do this for std430 alignment rules...
+            // Use mat4 for std430 alignment rules...
             public Matrix4 NormalMatrix;
         }
 
@@ -312,6 +313,9 @@ namespace DD2470_Clustered_Volume_Renderer
                     RenderEntitiesSpan[i].ModelMatrix = GetLocalToWorldTransform(RenderEntities[i].Entity);
                 }
             }
+
+            double transformTime = watch.Elapsed.TotalMilliseconds;
+            watch.Restart();
 
             RenderEntities.Sort((e1, e2) => Material.Compare(e1.Entity.Mesh?.Material, e2.Entity.Mesh?.Material));
 
@@ -379,6 +383,13 @@ namespace DD2470_Clustered_Volume_Renderer
             double cullingTime = watch.Elapsed.TotalMilliseconds;
             watch.Restart();
 
+            // FIXME: We are allocating this every frame...
+            // Create buffer for instance data
+            Buffer instanceDataBuffer = Buffer.CreateBuffer("Instance data", RenderEntities.Count, sizeof(InstanceData), BufferStorageFlags.DynamicStorageBit);
+
+            // FIXME: Ideally we would want to calculate all the transformation data on the GPU
+            // That would allow us to much more efficiently calculate all transforms
+            // But for now we will just optimize this case.
             int thingsToRender = 0;
             List<Drawcall> drawcalls = new List<Drawcall>();
             for (int i = 0; i < RenderEntities.Count; i++)
@@ -405,6 +416,9 @@ namespace DD2470_Clustered_Volume_Renderer
                     instanceData[instance].NormalMatrix = new Matrix4(normalMatrix);
                 }
 
+                Buffer.UpdateSubData<InstanceData>(instanceDataBuffer, instanceData, i);
+
+                Stopwatch watch2 = Stopwatch.StartNew();
                 Drawcall drawcall = new Drawcall
                 {
                     PositionBuffer = baseRenderData.Entity.Mesh.PositionBuffer,
@@ -419,11 +433,15 @@ namespace DD2470_Clustered_Volume_Renderer
                     IndexCount = baseRenderData.Entity.Mesh.IndexCount,
                     IndexByteOffset = baseRenderData.Entity.Mesh.IndexByteOffset,
                     IndexSize = baseRenderData.Entity.Mesh.IndexSize,
-                    // FIXME: We are allocating this every frame?
-                    InstanceData = Buffer.CreateBuffer("", instanceData, BufferStorageFlags.None)
+
+                    InstanceData = instanceDataBuffer,
+                    InstanceOffset = i,
                 };
                 drawcalls.Add(drawcall);
                 thingsToRender += instanceCount;
+
+                //Console.WriteLine($"Upload buffer data: {watch2.Elapsed.TotalMilliseconds}ms");
+                watch2.Stop();
 
                 i += instanceCount - 1;
 
@@ -451,8 +469,9 @@ namespace DD2470_Clustered_Volume_Renderer
             double drawcallGenTime = watch.Elapsed.TotalMilliseconds;
             watch.Stop();
 
-            Console.WriteLine($"Culling time: {cullingTime}ms");
-            Console.WriteLine($"Gen drawcall time: {drawcallGenTime}ms");
+            //Console.WriteLine($"Transform time: {cullingTime}ms");
+            //Console.WriteLine($"Culling time: {cullingTime}ms");
+            //Console.WriteLine($"Gen drawcall time: {drawcallGenTime}ms");
 
             //Console.WriteLine(thingsToRender);
 
@@ -487,7 +506,8 @@ namespace DD2470_Clustered_Volume_Renderer
                         GL.Uniform1(20, 0.5f);
                     }
 
-                    Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
+                    Graphics.BindShaderStorageBlockRange(1, drawcall.InstanceData, drawcall.InstanceOffset * sizeof(InstanceData), drawcall.InstanceCount * sizeof(InstanceData));
+
 
                     // FIXME: maybe use the buffer element size here instead of sizeof()?
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
@@ -517,6 +537,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 GL.Disable(EnableCap.DepthTest);
                 Graphics.SetDepthWrite(false);
+                Graphics.SetColorWrite(ColorChannels.All);
 
                 // Copy over the depth data...
                 GL.BindFramebuffer(FramebufferTarget.Framebuffer, HiZMipFramebuffer.Handle);
@@ -582,7 +603,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindTexture(1, drawcall.NormalTexture);
 
                     Graphics.BindShaderStorageBlock(0, LightBuffer);
-                    Graphics.BindShaderStorageBlock(1, drawcall.InstanceData);
+                    Graphics.BindShaderStorageBlockRange(1, drawcall.InstanceData, drawcall.InstanceOffset * sizeof(InstanceData), drawcall.InstanceCount * sizeof(InstanceData));
 
                     // FIXME: We assume the camera transform has no parent.
                     GL.Uniform3(10, Camera.Transform.LocalPosition);
@@ -655,13 +676,8 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Postprocess");
             {
                 // Clean up instance data.
-                // FIXME: Do something smarter with the buffers??
-                for (int i = 0; i < drawcalls.Count; i++)
-                {
-                    Drawcall drawcall = drawcalls[i];
-
-                    Buffer.DeleteBuffer(drawcall.InstanceData);
-                }
+                // FIXME: Do something smarter with the buffer??
+                Buffer.DeleteBuffer(instanceDataBuffer);
 
                 GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
                 Graphics.UseShader(Tonemap.Shader);

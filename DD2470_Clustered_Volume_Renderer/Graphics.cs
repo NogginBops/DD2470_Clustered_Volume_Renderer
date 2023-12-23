@@ -292,15 +292,69 @@ namespace DD2470_Clustered_Volume_Renderer
         // GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS is at least 8
         public const int MinShaderStorageBufferBindings = 8;
 
+        public struct BindingRange : IEquatable<BindingRange>
+        {
+            public static readonly BindingRange Empty = new BindingRange(0, 0);
+
+            public int Offset;
+            public int Size;
+
+            public BindingRange(int offset, int size)
+            {
+                Offset = offset;
+                Size = size;
+            }
+
+            public override bool Equals(object? obj)
+            {
+                return obj is BindingRange range && Equals(range);
+            }
+
+            public bool Equals(BindingRange other)
+            {
+                return Offset == other.Offset &&
+                       Size == other.Size;
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(Offset, Size);
+            }
+
+            public static bool operator ==(BindingRange left, BindingRange right)
+            {
+                return left.Equals(right);
+            }
+
+            public static bool operator !=(BindingRange left, BindingRange right)
+            {
+                return !(left == right);
+            }
+        }
+
         public static Buffer?[] BoundShaderStorageBuffers = new Buffer[MinShaderStorageBufferBindings];
+        public static BindingRange[] BoundShaderStorageBufferRanges = new BindingRange[MinShaderStorageBufferBindings];
 
         public static void BindShaderStorageBlock(int index, Buffer? buffer)
         {
-            if (BoundShaderStorageBuffers[index] != buffer)
+            if (BoundShaderStorageBuffers[index] != buffer || BoundShaderStorageBufferRanges[index] != BindingRange.Empty)
             {
                 GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, index, buffer?.Handle ?? 0);
 
                 BoundShaderStorageBuffers[index] = buffer;
+                BoundShaderStorageBufferRanges[index] = BindingRange.Empty;
+            }
+        }
+
+        public static void BindShaderStorageBlockRange(int index, Buffer? buffer, int offset, int size)
+        {
+            BindingRange range = new BindingRange(offset, size);
+            if (BoundShaderStorageBuffers[index] != buffer || BoundShaderStorageBufferRanges[index] != range)
+            {
+                GL.BindBufferRange(BufferRangeTarget.ShaderStorageBuffer, index, buffer?.Handle ?? 0, offset, size);
+
+                BoundShaderStorageBuffers[index] = buffer;
+                BoundShaderStorageBufferRanges[index] = range;
             }
         }
 

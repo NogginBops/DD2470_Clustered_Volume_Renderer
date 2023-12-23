@@ -82,5 +82,14 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.DeleteBuffer(buffer.Handle);
             buffer.Handle = 0;
         }
+
+        public static unsafe void UpdateSubData<T>(Buffer buffer, ReadOnlySpan<T> span, int elementOffset) 
+            where T : unmanaged
+        {
+            fixed(T* ptr = span)
+            {
+                GL.NamedBufferSubData(buffer.Handle, elementOffset * buffer.Size, span.Length * buffer.Size, (IntPtr)ptr);
+            }
+        }
     }
 }
