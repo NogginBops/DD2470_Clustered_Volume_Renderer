@@ -70,6 +70,8 @@ namespace DD2470_Clustered_Volume_Renderer
         {
             base.OnLoad();
 
+            VSync = VSyncMode.Off;
+
             ImGuiController = new ImGuiController(FramebufferSize.X, FramebufferSize.Y);
             
             HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", FramebufferSize.X, FramebufferSize.Y);
@@ -190,10 +192,25 @@ namespace DD2470_Clustered_Volume_Renderer
 
             if (ImGui.Begin("Camera"))
             {
+                const float CameraMinY = -80f;
+                const float CameraMaxY = 80f;
+
                 ImGui.SeparatorText("Camera 2");
                 ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera2.Transform.LocalPosition));
-                ImGui.DragFloat("Rotation X", ref Camera2.XAxisRotation);
-                ImGui.DragFloat("Rotation Y", ref Camera2.YAxisRotation);
+                ImGui.DragFloat("Rotation X", ref Camera2.XAxisRotation, 0.01f);
+                ImGui.DragFloat("Rotation Y", ref Camera2.YAxisRotation, 0.01f);
+                Camera2.XAxisRotation = MathHelper.Clamp(Camera2.XAxisRotation, CameraMinY * Util.D2R, CameraMaxY * Util.D2R);
+                Camera2.Transform.LocalRotation =
+                    Quaternion.FromAxisAngle(Vector3.UnitY, Camera2.YAxisRotation) *
+                    Quaternion.FromAxisAngle(Vector3.UnitX, Camera2.XAxisRotation);
+
+                ImGui.DragFloat("Near plane", ref Camera2.NearPlane);
+                if (Camera2.NearPlane < 0.001f)
+                    Camera2.NearPlane = 0.001f;
+                ImGui.DragFloat("Far plane", ref Camera2.FarPlane);
+                if (Camera2.FarPlane <= Camera2.NearPlane + 1)
+                    Camera2.FarPlane = Camera.NearPlane + 1;
+                ImGui.DragFloat("Vertical FoV", ref Camera2.VerticalFov);
             }
             ImGui.End();
 
@@ -298,7 +315,8 @@ namespace DD2470_Clustered_Volume_Renderer
             {
                 // Add a debug visualization for this?
                 Span<EntityRenderData> RenderEntitiesSpan = CollectionsMarshal.AsSpan(RenderEntities);
-                Frustum frustum = Frustum.FromCamera(Camera2);
+                Frustum frustum = Frustum.FromCamera(Camera);
+                Frustum debugFrustum = Frustum.FromCamera(Camera2);
                 for (int i = 0; i < RenderEntities.Count; i++)
                 {
                     ref EntityRenderData renderData = ref RenderEntitiesSpan[i];
@@ -355,6 +373,7 @@ namespace DD2470_Clustered_Volume_Renderer
             // Remove all culled entities from the list
             RenderEntities.RemoveAll(e => e.Culled);
 
+            int thingsToRender = 0;
             List<Drawcall> drawcalls = new List<Drawcall>();
             for (int i = 0; i < RenderEntities.Count; i++)
             {
@@ -398,6 +417,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     InstanceData = Buffer.CreateBuffer("", instanceData, BufferStorageFlags.None)
                 };
                 drawcalls.Add(drawcall);
+                thingsToRender += instanceCount;
 
                 i += instanceCount - 1;
 
@@ -421,6 +441,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     }
                 }
             }
+
+            //Console.WriteLine(thingsToRender);
 
             Graphics.SetDepthWrite(true);
             Graphics.SetColorWrite(ColorChannels.All);

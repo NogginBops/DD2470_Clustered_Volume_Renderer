@@ -12,7 +12,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             GameWindowSettings gws = new GameWindowSettings()
             {
-                UpdateFrequency = 144,
+                //UpdateFrequency = 144,
             };
 
             NativeWindowSettings nws = new NativeWindowSettings()

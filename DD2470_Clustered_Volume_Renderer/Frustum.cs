@@ -14,36 +14,17 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public static Frustum FromCamera(Camera camera)
         {
-            Matrix4 invVP = Matrix4.Invert(camera.Transform.LocalToParent * camera.ProjectionMatrix);
+            Matrix4 vp = camera.Transform.ParentToLocal * camera.ProjectionMatrix;
 
-            // https://arm-software.github.io/opengl-es-sdk-for-android/terrain.html
-            Vector3 lbn = Vector3.TransformPerspective((-1, -1, -1), invVP);
-            Vector3 ltn = Vector3.TransformPerspective((-1, +1, -1), invVP);
-            Vector3 lbf = Vector3.TransformPerspective((-1, -1, +1), invVP);
-            Vector3 rbn = Vector3.TransformPerspective((+1, -1, -1), invVP);
-            Vector3 rtn = Vector3.TransformPerspective((+1, +1, -1), invVP);
-            Vector3 rbf = Vector3.TransformPerspective((+1, -1, +1), invVP);
-            Vector3 rtf = Vector3.TransformPerspective((+1, +1, +1), invVP);
-
-            // Check that all the lbn type var are correct, and that the cross products are correct..
-            Vector3 left_normal = Vector3.Normalize(Vector3.Cross(lbf - lbn, ltn - lbn));
-            Vector3 right_normal = Vector3.Normalize(Vector3.Cross(rtn - rbn, rbf - rbn));
-            Vector3 top_normal = Vector3.Normalize(Vector3.Cross(ltn - rtn, rtf - rtn));
-            Vector3 bottom_normal = Vector3.Normalize(Vector3.Cross(rbf - rbn, lbn - rbn));
-            Vector3 near_normal = Vector3.Normalize(Vector3.Cross(ltn - lbn, rbn - lbn));
-            Vector3 far_normal = Vector3.Normalize(Vector3.Cross(rtf - rbf, lbf - rbf));
-
-            var left2 = System.Numerics.Plane.CreateFromVertices(lbn.ToNumerics(), ltn.ToNumerics(), lbf.ToNumerics());
-            var left3 = System.Numerics.Plane.CreateFromVertices(ltn.ToNumerics(), lbn.ToNumerics(), lbf.ToNumerics());
-            var left = new System.Numerics.Plane(left_normal.AsNumerics(), -Vector3.Dot(left_normal, lbn));
-
+            // https://fgiesen.wordpress.com/2012/08/31/frustum-planes-from-the-projection-matrix/
             Frustum frustum = new Frustum();
-            frustum.Near = new System.Numerics.Plane(near_normal.AsNumerics(), -Vector3.Dot(near_normal, lbn));
-            frustum.Far = new System.Numerics.Plane(far_normal.AsNumerics(), -Vector3.Dot(far_normal, lbf));
-            frustum.Left = new System.Numerics.Plane(left_normal.AsNumerics(), -Vector3.Dot(left_normal, lbn));
-            frustum.Right = new System.Numerics.Plane(right_normal.AsNumerics(), -Vector3.Dot(right_normal, rbn));
-            frustum.Top = new System.Numerics.Plane(top_normal.AsNumerics(), -Vector3.Dot(top_normal, ltn));
-            frustum.Bottom = new System.Numerics.Plane(bottom_normal.AsNumerics(), -Vector3.Dot(bottom_normal, lbn));
+            frustum.Left = new System.Numerics.Plane((vp.Column3 + vp.Column0).ToNumerics());
+            frustum.Right = new System.Numerics.Plane((vp.Column3 - vp.Column0).ToNumerics());
+            frustum.Bottom = new System.Numerics.Plane((vp.Column3 + vp.Column1).ToNumerics());
+            frustum.Top = new System.Numerics.Plane((vp.Column3 - vp.Column1).ToNumerics());
+            frustum.Near = new System.Numerics.Plane((vp.Column3 + vp.Column2).ToNumerics());
+            frustum.Far = new System.Numerics.Plane((vp.Column3 - vp.Column2).ToNumerics());
+
             return frustum;
         }
 
@@ -60,14 +41,12 @@ namespace DD2470_Clustered_Volume_Renderer
             corners[7] = new System.Numerics.Vector4(aabb.Max.X, aabb.Max.Y, aabb.Max.Z, 1f);
 
             Span<System.Numerics.Plane> planes = stackalloc System.Numerics.Plane[6];
-            planes[0] = frustum.Near;
-            planes[1] = frustum.Far; // frustum.Far;
+            planes[0] = frustum.Left;
+            planes[1] = frustum.Right;
             planes[2] = frustum.Top;
             planes[3] = frustum.Bottom;
-            planes[4] = frustum.Left;
-            planes[5] = frustum.Right;
-
-            planes = [frustum.Left];
+            planes[4] = frustum.Far;
+            planes[5] = frustum.Near;
 
             foreach (System.Numerics.Plane plane in planes)
             {
@@ -76,8 +55,6 @@ namespace DD2470_Clustered_Volume_Renderer
                 {
                     if (System.Numerics.Plane.Dot(plane, corner) > 0)
                     {
-                        if (plane == frustum.Near)
-                            ;
                         inside_plane = true;
                         break;
                     }

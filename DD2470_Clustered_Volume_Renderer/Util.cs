@@ -16,6 +16,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public static System.Numerics.Vector3 ToNumerics(this Vector3 vec3) =>
           Unsafe.As<Vector3, System.Numerics.Vector3>(ref vec3);
 
+        public static System.Numerics.Vector4 ToNumerics(this Vector4 vec4) =>
+          Unsafe.As<Vector4, System.Numerics.Vector4>(ref vec4);
+
         public static ref System.Numerics.Vector3 AsNumerics(ref this Vector3 vec3) =>
             ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref vec3);
 
