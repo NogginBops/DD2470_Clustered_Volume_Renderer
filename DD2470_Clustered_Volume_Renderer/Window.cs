@@ -6,6 +6,7 @@ using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -296,6 +297,8 @@ namespace DD2470_Clustered_Volume_Renderer
             Matrix4 projectionMatrix = Camera.ProjectionMatrix;
             Matrix4 vp = viewMatrix * projectionMatrix;
 
+            Stopwatch watch = Stopwatch.StartNew();
+
             // FIXME: Do not create a new list every frame...
             // FIXME: Linq
             List<EntityRenderData> RenderEntities = new List<EntityRenderData>(Entities.Select(e => new EntityRenderData() { Entity = e }));
@@ -373,6 +376,9 @@ namespace DD2470_Clustered_Volume_Renderer
             // Remove all culled entities from the list
             RenderEntities.RemoveAll(e => e.Culled);
 
+            double cullingTime = watch.Elapsed.TotalMilliseconds;
+            watch.Restart();
+
             int thingsToRender = 0;
             List<Drawcall> drawcalls = new List<Drawcall>();
             for (int i = 0; i < RenderEntities.Count; i++)
@@ -441,6 +447,12 @@ namespace DD2470_Clustered_Volume_Renderer
                     }
                 }
             }
+
+            double drawcallGenTime = watch.Elapsed.TotalMilliseconds;
+            watch.Stop();
+
+            Console.WriteLine($"Culling time: {cullingTime}ms");
+            Console.WriteLine($"Gen drawcall time: {drawcallGenTime}ms");
 
             //Console.WriteLine(thingsToRender);
 
