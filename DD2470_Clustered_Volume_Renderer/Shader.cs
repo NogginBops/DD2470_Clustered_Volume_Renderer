@@ -30,8 +30,10 @@ namespace DD2470_Clustered_Volume_Renderer
             return new Shader(program);
         }
 
-        public static Shader CreateCompute(string name, string computeSource)
+        public static Shader CreateCompute(string name, string computePath)
         {
+            string computeSource = File.ReadAllText(computePath);
+
             int shader = CompileShader($"{name}_compute", ShaderType.ComputeShader, computeSource);
             int program = LinkProgram(name, stackalloc int[1] { shader });
 
@@ -60,7 +62,7 @@ namespace DD2470_Clustered_Volume_Renderer
             if (success == 0)
             {
                 string log = GL.GetProgramInfoLog(program);
-                Console.WriteLine($"Failed to link program: {log}");
+                Console.WriteLine($"Failed to link program '{name}': {log}");
                 return 0;
             }
 
@@ -80,7 +82,7 @@ namespace DD2470_Clustered_Volume_Renderer
             if (success == 0)
             {
                 string log = GL.GetShaderInfoLog(shader);
-                Console.WriteLine($"Failed to compile shader: {log}");
+                Console.WriteLine($"Failed to compile shader '{name}': {log}");
                 // FIXME: Return error shader
                 return 0;
             }

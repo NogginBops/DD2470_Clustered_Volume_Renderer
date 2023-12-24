@@ -1,0 +1,33 @@
+#version 460 core
+
+// The clusters are AABBs in view space
+// so that they are aligned with the view direction.
+struct Cluster 
+{
+    vec4 Min;
+    vec4 Max;
+};
+
+layout(std430, binding=0) writeonly buffer Clusters
+{
+    Cluster ssbo_clusters[];
+};
+
+layout(local_size_x = 1, local_size_y = 1) in;
+void main()
+{
+    uint tileSizePx = 16; // FIXME: Calculate or get the real tile size.
+    uint tileIndex = gl_WorkGroupID.x +
+                     gl_WorkGroupID.y * gl_NumWorkGroups.x +
+                     gl_WorkGroupID.z * (gl_NumWorkGroups.x * gl_NumWorkGroups.y);
+
+    // Top right
+    vec4 maxPointScreen = vec4(vec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * tileSizePx, -1.0, 1.0);
+    // Bottom left
+    vec4 minPointScreen = vec4(gl_WorkGroupID.xy * tileSizePx, -1.0, 1.0);
+
+    // Convert the screen space points into
+
+    ssbo_clusters[tileIndex].Min = minPointScreen;
+    ssbo_clusters[tileIndex].Max = maxPointScreen;
+}

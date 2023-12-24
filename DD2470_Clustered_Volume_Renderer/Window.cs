@@ -58,6 +58,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material HiZDepthCopy;
         public Material HiZPass;
 
+        public Buffer ClusterData;
+        public Material ClusterGenPass;
+
         public Camera Camera;
         public Camera Camera2;
         public List<Entity> Entities;
@@ -100,6 +103,10 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Shader hiZDepthCopy = Shader.CreateVertexFragment("HiZ copy depth Shader", "./Shaders/fullscreen.vert", "./Shaders/depth_to_texture.frag");
             HiZDepthCopy = new Material(hiZDepthCopy, null);
+
+            ClusterData = Buffer.CreateBuffer("Cluster AABBs", 16 * 9 * 24, 8 * sizeof(float), BufferStorageFlags.None);
+            Shader clusterGen = Shader.CreateCompute("Cluster generation", "./Shaders/Clustered/build_clusters.comp");
+            ClusterGenPass = new Material(clusterGen, null);
 
             DefaultAlbedo = Texture.FromColor(Color4.White, true);
             DefaultNormal = Texture.FromColor(new Color4(0.5f, 0.5f, 1f, 1f), false);
@@ -298,6 +305,8 @@ namespace DD2470_Clustered_Volume_Renderer
             Matrix4 projectionMatrix = Camera.ProjectionMatrix;
             Matrix4 vp = viewMatrix * projectionMatrix;
 
+            Frustum frustum = Frustum.FromCamera(Camera);
+
             Stopwatch watch = Stopwatch.StartNew();
 
             // FIXME: Do not create a new list every frame...
@@ -322,7 +331,6 @@ namespace DD2470_Clustered_Volume_Renderer
             {
                 // Add a debug visualization for this?
                 Span<EntityRenderData> RenderEntitiesSpan = CollectionsMarshal.AsSpan(RenderEntities);
-                Frustum frustum = Frustum.FromCamera(Camera);
                 Frustum debugFrustum = Frustum.FromCamera(Camera2);
                 for (int i = 0; i < RenderEntities.Count; i++)
                 {
@@ -404,6 +412,19 @@ namespace DD2470_Clustered_Volume_Renderer
                     instanceCount++;
                 }
 
+                // FIXME: Sort the instanced items by distance from AABB center.
+                
+                Span<EntityRenderData> instanceEntities = CollectionsMarshal.AsSpan(RenderEntities).Slice(i, instanceCount);
+
+                // Sort by distance to the near plane
+                instanceEntities.Sort((e1, e2) => 
+                            MathF.Sign(
+                                System.Numerics.Plane.Dot(frustum.Near, e1.ModelMatrix.Row3.AsNumerics()) - 
+                                System.Numerics.Plane.Dot(frustum.Near, e2.ModelMatrix.Row3.AsNumerics())
+                                ));
+
+                var test = instanceEntities.ToArray().Select(e => System.Numerics.Plane.Dot(frustum.Near, e.ModelMatrix.Row3.AsNumerics())).ToArray();
+
                 InstanceData[] instanceData = new InstanceData[instanceCount];
                 for (int instance = 0; instance < instanceData.Length; instance++)
                 {
@@ -481,7 +502,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Graphics.Clear(ClearMask.Color | ClearMask.Depth | ClearMask.Stencil);
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
-
+            
             // FIXME: Reverse Z?
 
             Graphics.SetCullMode(CullMode.CullBackFacing);
@@ -579,6 +600,15 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
                 GL.Viewport(0, 0, HDRFramebuffer.ColorAttachment0.Width, HDRFramebuffer.ColorAttachment0.Height);
+            }
+            GL.PopDebugGroup();
+
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Clustering");
+            {
+                Graphics.UseShader(ClusterGenPass.Shader);
+                Graphics.BindShaderStorageBlock(0, ClusterData);
+
+                GL.DispatchCompute(16, 9, 24);
             }
             GL.PopDebugGroup();
 
