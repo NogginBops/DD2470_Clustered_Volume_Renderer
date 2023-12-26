@@ -48,6 +48,10 @@ namespace DD2470_Clustered_Volume_Renderer
         public Texture DefaultAlbedo;
         public Texture DefaultNormal;
 
+        public Texture SkyboxRadiance;
+        public Texture SkyboxIrradiance;
+        public Material SkyboxMaterial;
+
         public Material DebugMaterial;
 
         public Material DefaultMaterial;
@@ -81,6 +85,14 @@ namespace DD2470_Clustered_Volume_Renderer
             HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", FramebufferSize.X, FramebufferSize.Y);
 
             HiZMipFramebuffer = Framebuffer.CreateHiZFramebuffer("HI-Z Framebuffer", FramebufferSize.X, FramebufferSize.Y);
+
+            Shader skyboxShader = Shader.CreateVertexFragment("Skybox Shader", "./Shaders/skybox.vert", "./Shaders/skybox.frag");
+            SkyboxMaterial = new Material(skyboxShader, null);
+            SkyboxMaterial.Albedo = Texture.LoadHDRICubeMapTexture("./Skybox/moonlit_golf/", true);
+
+            SkyboxIrradiance = Texture.LoadHDRICubeMapTexture("./Skybox/moonlit_golf/irradiance/", true);
+            SkyboxRadiance = Texture.LoadHDRICubeMapTexture("./Skybox/moonlit_golf/radiance/", true);
+            SkyboxMaterial.Albedo = SkyboxRadiance;
 
             Shader debugShader = Shader.CreateVertexFragment("Debug Shader", "./Shaders/debug.vert", "./Shaders/debug.frag");
             DebugMaterial = new Material(debugShader, null);
@@ -162,6 +174,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             // FIXME: Make a graphics thing for this...
             GL.Enable(EnableCap.DepthTest);
+            GL.Enable(EnableCap.TextureCubeMapSeamless);
             Graphics.SetCullMode(CullMode.CullBackFacing);
             Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
             Graphics.SetDepthWrite(true);
@@ -632,6 +645,9 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindTexture(0, drawcall.AlbedoTexture);
                     Graphics.BindTexture(1, drawcall.NormalTexture);
 
+                    // FIXME: Get this from a skybox object?
+                    Graphics.BindTexture(5, SkyboxIrradiance);
+
                     Graphics.BindShaderStorageBlock(0, LightBuffer);
                     Graphics.BindShaderStorageBlockRange(1, drawcall.InstanceData, drawcall.InstanceOffset * sizeof(InstanceData), drawcall.InstanceCount * sizeof(InstanceData));
 
@@ -657,6 +673,30 @@ namespace DD2470_Clustered_Volume_Renderer
                     };
 
                     GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
+                }
+
+                // Draw skybox
+                {
+                    Graphics.UseShader(SkyboxMaterial.Shader);
+
+                    Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
+
+                    Graphics.BindTexture(0, SkyboxMaterial.Albedo);
+
+                    Matrix4 centeredVP = new Matrix4(new Matrix3(viewMatrix)) * projectionMatrix;
+                    GL.UniformMatrix4(0, true, ref centeredVP);
+
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
+                    Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);
+
+                    var elementType = CubeMesh.IndexBuffer.Size switch
+                    {
+                        2 => DrawElementsType.UnsignedShort,
+                        4 => DrawElementsType.UnsignedInt,
+                        _ => throw new NotSupportedException(),
+                    };
+
+                    GL.DrawElements(PrimitiveType.Triangles, CubeMesh.IndexBuffer.Count, elementType, 0);
                 }
             }
             GL.PopDebugGroup();

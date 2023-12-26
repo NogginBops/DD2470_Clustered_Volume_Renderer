@@ -1,4 +1,5 @@
-﻿using OpenTK.Graphics.OpenGL4;
+﻿using OpenTK.Audio.OpenAL;
+using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using StbImageSharp;
 using System;
@@ -66,6 +67,102 @@ namespace DD2470_Clustered_Volume_Renderer
             return new Texture(texture, result.Width, result.Height, 1, mipmapLevels, format);
         }
 
+        public static Texture LoadHDRITexture(string path, bool generateMipmap)
+        {
+            StbImage.stbi_set_flip_vertically_on_load(1);
+            ImageResultFloat result = ImageResultFloat.FromStream(File.OpenRead(path), ColorComponents.RedGreenBlue);
+
+            int mipmapLevels = generateMipmap ?
+                MathF.ILogB(Math.Max(result.Width, result.Height)) + 1 :
+                1;
+
+            // FIXME: Make the texture 16F format, then compress it using BC6H...
+            // Could also look at rgb9e5 format.
+            SizedInternalFormat format = SizedInternalFormat.Rgb32f;
+
+            PixelFormat pixelFormat = PixelFormat.Rgb;
+            PixelType pixelType = PixelType.Float;
+
+            GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
+
+            string name = Path.GetRelativePath(Directory.GetCurrentDirectory(), path);
+            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
+
+            GL.TextureStorage2D(texture, mipmapLevels, format, result.Width, result.Height);
+            GL.TextureSubImage2D(texture, 0, 0, 0, result.Width, result.Height, pixelFormat, pixelType, result.Data);
+
+            if (generateMipmap)
+            {
+                GL.GenerateTextureMipmap(texture);
+            }
+            else
+            {
+                // FIXME: Set the texture filtering properties for non-mipmap textures!
+            }
+
+            return new Texture(texture, result.Width, result.Height, 1, mipmapLevels, format);
+        }
+
+        public static Texture LoadHDRICubeMapTexture(string directory, bool generateMipmap)
+        {
+            // This is the OpenGL layer order for cubemaps.
+            ReadOnlySpan<string> faces = ["px", "nx", "py", "ny", "pz", "nz"];
+
+            // To get the faces in the correct orientation we do this..?
+            StbImage.stbi_set_flip_vertically_on_load(0);
+
+            GL.CreateTextures(TextureTarget.TextureCubeMap, 1, out int texture);
+            string name = Path.GetRelativePath(Directory.GetCurrentDirectory(), directory);
+            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
+
+            bool hasStorage = false;
+
+            // FIXME: Make the texture 16F format, then compress it using BC6H...
+            // Could also look at rgb9e5 format.
+            SizedInternalFormat format = SizedInternalFormat.Rgb32f;
+
+            PixelFormat pixelFormat = PixelFormat.Rgb;
+            PixelType pixelType = PixelType.Float;
+
+            int mipmapLevels = 1;
+            int width = 0;
+            int height = 0;
+
+            for (int i = 0; i < faces.Length; i++)
+            {
+                string face = faces[i];
+
+                string path = Path.Combine(directory, $"{face}.hdr");
+
+                using Stream stream = File.OpenRead(path);
+                ImageResultFloat result = ImageResultFloat.FromStream(stream, ColorComponents.RedGreenBlue);
+
+                // FIXME: Assert that the dimentions don't change between faces?
+                width = result.Width;
+                height = result.Height;
+
+                if (hasStorage == false)
+                {
+                    mipmapLevels = generateMipmap ? MathF.ILogB(Math.Max(result.Width, result.Height)) + 1 : 1;
+                    GL.TextureStorage2D(texture, mipmapLevels, format, result.Width, result.Height);
+                    hasStorage = true;
+                }
+
+                GL.TextureSubImage3D(texture, 0, 0, 0, i, result.Width, result.Height, 1, pixelFormat, pixelType, result.Data);
+            }
+
+            if (generateMipmap)
+            {
+                GL.GenerateTextureMipmap(texture);
+            }
+            else
+            {
+                // FIXME: Set the texture filtering properties for non-mipmap textures!
+            }
+
+            return new Texture(texture, width, height, 6, mipmapLevels, format);
+        }
+
         // FIXME: Get name from path?
         public static Texture LoadTexture(string name, DDSImage image, bool generateMipmap)
         {
@@ -90,7 +187,8 @@ namespace DD2470_Clustered_Volume_Renderer
             SizedInternalFormat format;
             switch (image.Format)
             {
-                case DDSImageFormat.BC5_SNORM:
+                case DDSImageFormat.BC5_UNORM:
+                    // FIXME: Should it be unsigned or signed?
                     format = (SizedInternalFormat)All.CompressedRgRgtc2;
                     break;
                 case DDSImageFormat.BC7_UNORM:

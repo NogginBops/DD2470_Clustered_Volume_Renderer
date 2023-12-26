@@ -10,6 +10,8 @@ namespace DD2470_Clustered_Volume_Renderer
             // FIXME: Better way to do this?
             Directory.SetCurrentDirectory("../../../../Assets");
 
+            GLFWProvider.CheckForMainThread = false;
+
             GameWindowSettings gws = new GameWindowSettings()
             {
                 //UpdateFrequency = 144,

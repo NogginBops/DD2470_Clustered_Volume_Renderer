@@ -10,6 +10,8 @@ out vec4 f_color;
 layout(binding=0) uniform sampler2D tex_Albedo;
 layout(binding=1) uniform sampler2D tex_Normal;
 
+layout(binding=5) uniform samplerCube tex_Irradiance;
+
 layout(location=10) uniform vec3 u_CameraPosition;
 
 const float PI = 3.14159265359;
@@ -31,6 +33,10 @@ struct Surface
 	vec3 Albedo;
 	vec3 Normal;
 	vec2 UV0;
+
+	float Metallic;
+	float Roughness;
+	vec3 F0;
 
 	vec3 ViewDirection;
 	vec3 ReflectionDirection;
@@ -67,7 +73,7 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float k)
 	return ggx1 * ggx2;
 }
 
-vec3 fresnelSchlick(float cosTheta, vec3 F0)
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
 {
     return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
@@ -123,21 +129,13 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 	
 	vec3 radiance = light.Color.rgb * attenuation;
 
-	// FIXME: Calculate this as part of the surface data!
-	vec3 F0 = vec3(0.04);
-	float metallic = 0.0;
-	F0 = mix(F0, surface.Albedo, metallic);
-
-	// FIXME: Make part of the surface
-	float roughness = 0.2;
-
-	float NDF = DistributionGGX(surface.Normal, halfwayDirection, roughness);
-	float G   = GeometrySmith(surface.Normal, surface.ViewDirection, lightDirection, roughness);
-	vec3 F    = fresnelSchlick(max(dot(halfwayDirection, surface.ViewDirection), 0.0), F0);
+	float NDF = DistributionGGX(surface.Normal, halfwayDirection, surface.Roughness);
+	float G   = GeometrySmith(surface.Normal, surface.ViewDirection, lightDirection, surface.Roughness);
+	vec3 F    = FresnelSchlick(max(dot(halfwayDirection, surface.ViewDirection), 0.0), surface.F0);
 
 	vec3 kS = F;
 	vec3 kD = vec3(1.0) - kS;
-	kD *= 1.0 - metallic;
+	kD *= 1.0 - surface.Metallic;
 
 	vec3 numerator    = NDF * G * F;
 	float denominator = 4.0 * max(dot(surface.Normal, surface.ViewDirection), 0.0) * max(dot(surface.Normal, lightDirection), 0.0) + 0.0001;
@@ -165,8 +163,19 @@ void main()
 	vec3 texNormal;
 	texNormal.xy = texture(tex_Normal, v_uv0).rg * 2.0 - 1.0;
 	texNormal.z = sqrt(1 - dot(texNormal.xy, texNormal.xy));
-	//texNormal = texture(tex_Normal, v_uv0).rgb * 2.0 - 1.0;
 	normal = normalize(tangentToWorld * texNormal);
+
+	f_color = vec4(texNormal.xy, 0.0, 1.0);
+	return;
+
+	//if (any(isnan(normal)))
+	//{
+		//f_color= vec4(1,0,1,1);
+	//	return;
+	//}else{
+		f_color = vec4(normal, 1.0);
+		return;
+	//}
 
 	Surface surface;
 	surface.TangentToWorld = tangentToWorld;
@@ -174,15 +183,30 @@ void main()
 	surface.Normal = normal;
 	surface.UV0 = v_uv0;
 
+	// FIXME: Get metallic and roughness from texture.
+	surface.Metallic = 0.0;
+	surface.Roughness = 0.2;
+	surface.F0 = mix(vec3(0.04), surface.Albedo, surface.Metallic);
+
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
 	surface.ReflectionDirection = reflect(-surface.ViewDirection, surface.Normal);
 	
 	vec3 color = vec3(0, 0, 0);
 	for (int i = 0; i < u_lights.length(); i++)
 	{
-		color += ShadePointLight(surface, u_lights[i]);
+		//color += ShadePointLight(surface, u_lights[i]);
 	}
 
+	{
+		vec3 kS = FresnelSchlick(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.F0);
+		vec3 kD = 1.0 - kS;
+		kD *= 1.0 - surface.Metallic;
+		vec3 irradiance = texture(tex_Irradiance, surface.Normal).rgb;
+		vec3 diffuse = irradiance * surface.Albedo;
+
+		color += diffuse * kD;
+	}
+	
 	f_color = vec4(color, 1.0);
 	//f_color = vec4(texNormal, 1.0);
 }

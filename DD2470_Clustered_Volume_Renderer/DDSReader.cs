@@ -76,7 +76,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
     enum DDSImageFormat
     {
-        BC5_SNORM,
+        BC5_UNORM,
         BC7_UNORM,
         BC7_UNORM_SRGB,
     }
@@ -173,7 +173,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     image.Width = (int)header->dwWidth;
                     image.Height = (int)header->dwHeight;
                     image.MipmapCount = mipmapCount;
-                    image.Format = DDSImageFormat.BC5_SNORM;
+                    image.Format = DDSImageFormat.BC5_UNORM;
 
                     image.AllData = data;
 

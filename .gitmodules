@@ -4,3 +4,6 @@
 [submodule "Tools/meshoptimizer"]
 	path = Tools/meshoptimizer
 	url = git@github.com:NogginBops/meshoptimizer.git
+[submodule "Tools/StbImageSharp"]
+	path = Tools/StbImageSharp
+	url = git@github.com:NogginBops/StbImageSharp.git

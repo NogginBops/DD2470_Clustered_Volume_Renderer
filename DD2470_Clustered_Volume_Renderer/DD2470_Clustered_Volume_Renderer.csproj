@@ -12,13 +12,14 @@
   <ItemGroup>
     <PackageReference Include="ImGui.NET" Version="1.90.0.1" />
     <PackageReference Include="OpenTK" Version="4.8.2" />
-    <PackageReference Include="StbImageSharp" Version="2.27.13" />
+    <!--<PackageReference Include="StbImageSharp" Version="2.27.13" />-->
     <PackageReference Include="StirlingLabs.Assimp.Net" Version="23.4.1" />
     <PackageReference Update="StirlingLabs.assimp.native.win-x64" Version="5.2.5.4" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AssetProcessor\AssetProcessor.csproj" />
+    <ProjectReference Include="..\Tools\StbImageSharp\src\StbImageSharp.csproj" />
   </ItemGroup>
 
 </Project>

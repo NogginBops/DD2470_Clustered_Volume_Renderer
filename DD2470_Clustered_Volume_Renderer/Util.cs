@@ -1,8 +1,10 @@
 ﻿using OpenTK.Mathematics;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Contracts;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -12,6 +14,21 @@ namespace DD2470_Clustered_Volume_Renderer
     {
         public const float D2R = MathF.PI / 180f;
         public const float R2D = 180f / MathF.PI;
+
+        [Pure]
+        public static unsafe ulong GetAvailableStack()
+        {
+            int a = 0;
+            void* aref = Unsafe.AsPointer(ref a);
+            GetCurrentThreadStackLimits(out nuint lowLimit, out nuint highLimit);
+
+            var remaining = (nuint)aref - lowLimit;
+
+            return remaining;
+
+            [DllImport("kernel32.dll")]
+            static extern void GetCurrentThreadStackLimits(out nuint lowLimit, out nuint highLimit);
+        }
 
         public static System.Numerics.Vector3 ToNumerics(this Vector3 vec3) =>
           Unsafe.As<Vector3, System.Numerics.Vector3>(ref vec3);

@@ -15,20 +15,40 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		.editorconfig = .editorconfig
 	EndProjectSection
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "StbImageSharp", "Tools\StbImageSharp\src\StbImageSharp.csproj", "{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
 		Debug|x64 = Debug|x64
+		Release|Any CPU = Release|Any CPU
 		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Debug|Any CPU.Build.0 = Debug|x64
 		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Debug|x64.ActiveCfg = Debug|x64
 		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Debug|x64.Build.0 = Debug|x64
+		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Release|Any CPU.ActiveCfg = Release|x64
+		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Release|Any CPU.Build.0 = Release|x64
 		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Release|x64.ActiveCfg = Release|x64
 		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Release|x64.Build.0 = Release|x64
+		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|Any CPU.Build.0 = Debug|x64
 		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|x64.ActiveCfg = Debug|x64
 		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|x64.Build.0 = Debug|x64
+		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|Any CPU.ActiveCfg = Release|x64
+		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|Any CPU.Build.0 = Release|x64
 		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|x64.ActiveCfg = Release|x64
 		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|x64.Build.0 = Release|x64
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Debug|x64.Build.0 = Debug|Any CPU
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Release|x64.ActiveCfg = Release|Any CPU
+		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

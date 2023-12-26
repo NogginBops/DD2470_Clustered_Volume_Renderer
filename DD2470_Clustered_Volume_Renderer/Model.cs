@@ -156,7 +156,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 Material m;
                 if (material.HasColorTransparent || material.Name == "Grass_Diffuse")
                 {
-                    m = new Material(alphaCutout, prepassCutout);
+                    m = new Material(shader, prepassCutout);
                 }
                 else
                 {
