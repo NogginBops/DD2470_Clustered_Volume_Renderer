@@ -9,10 +9,15 @@ out vec4 f_color;
 
 layout(binding=0) uniform sampler2D tex_Albedo;
 layout(binding=1) uniform sampler2D tex_Normal;
+layout(binding=2) uniform sampler2D tex_RoughnessMetallic;
 
 layout(binding=5) uniform samplerCube tex_Irradiance;
+layout(binding=6) uniform samplerCube tex_Radiance;
+layout(binding=7) uniform sampler2D tex_brdfLUT;
 
 layout(location=10) uniform vec3 u_CameraPosition;
+
+layout(location=15) uniform float u_Exposure;
 
 const float PI = 3.14159265359;
 
@@ -162,20 +167,8 @@ void main()
 	mat3 tangentToWorld = mat3(tangent, bitangent, normal);
 	vec3 texNormal;
 	texNormal.xy = texture(tex_Normal, v_uv0).rg * 2.0 - 1.0;
-	texNormal.z = sqrt(1 - dot(texNormal.xy, texNormal.xy));
+	texNormal.z = sqrt(clamp(1 - dot(texNormal.xy, texNormal.xy), 0.0, 1.0));
 	normal = normalize(tangentToWorld * texNormal);
-
-	f_color = vec4(texNormal.xy, 0.0, 1.0);
-	return;
-
-	//if (any(isnan(normal)))
-	//{
-		//f_color= vec4(1,0,1,1);
-	//	return;
-	//}else{
-		f_color = vec4(normal, 1.0);
-		return;
-	//}
 
 	Surface surface;
 	surface.TangentToWorld = tangentToWorld;
@@ -183,9 +176,11 @@ void main()
 	surface.Normal = normal;
 	surface.UV0 = v_uv0;
 
-	// FIXME: Get metallic and roughness from texture.
-	surface.Metallic = 0.0;
-	surface.Roughness = 0.2;
+	// FIXME: At the moment we have roughtness in the G channel and metallic in the B channel
+	// we might want to use or remove the first channel...?
+	vec2 roughnessMetallic = texture(tex_RoughnessMetallic, v_uv0).yz;
+	surface.Roughness = clamp(roughnessMetallic.x, 0.6, 1.0);
+	surface.Metallic = roughnessMetallic.y;
 	surface.F0 = mix(vec3(0.04), surface.Albedo, surface.Metallic);
 
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
@@ -194,19 +189,24 @@ void main()
 	vec3 color = vec3(0, 0, 0);
 	for (int i = 0; i < u_lights.length(); i++)
 	{
-		//color += ShadePointLight(surface, u_lights[i]);
+		color += ShadePointLight(surface, u_lights[i]);
 	}
 
 	{
-		vec3 kS = FresnelSchlick(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.F0);
+		vec3 F = FresnelSchlick(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.F0);
+		vec3 kS = F;
 		vec3 kD = 1.0 - kS;
 		kD *= 1.0 - surface.Metallic;
-		vec3 irradiance = texture(tex_Irradiance, surface.Normal).rgb;
+		vec3 irradiance = texture(tex_Irradiance, surface.Normal).rgb * u_Exposure;
 		vec3 diffuse = irradiance * surface.Albedo;
 
-		color += diffuse * kD;
+		const float MAX_REFLECTION_LOD = 10.0;
+		vec3 prefilteredColor = textureLod(tex_Radiance, surface.ReflectionDirection,  surface.Roughness * MAX_REFLECTION_LOD).rgb * u_Exposure;
+		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
+		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+
+		color += /*diffuse * kD +*/ specular;
 	}
 	
 	f_color = vec4(color, 1.0);
-	//f_color = vec4(texNormal, 1.0);
 }

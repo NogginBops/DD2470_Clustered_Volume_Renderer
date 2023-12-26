@@ -213,6 +213,32 @@ namespace DD2470_Clustered_Volume_Renderer
                     //m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureDisplacement.FilePath), false, true);
                 }
 
+                if (material.PBR.HasTextureRoughness)
+                {
+                    string path = material.PBR.TextureRoughness.FilePath;
+
+                    // For now we just load it as is...
+                    //EmbeddedTexture texture = scene.GetEmbeddedTexture(path);
+                    //StbImage.stbi_set_flip_vertically_on_load(1);
+                    //ImageResult result = ImageResult.FromMemory(texture.CompressedData, ColorComponents.RedGreenBlueAlpha);
+                    //m.RoughnessMetallic = Texture.FromImage(path, result, true, false);
+
+                    string compressed_file = path.Replace("textures", "textures_compressed");
+                    compressed_file = Path.ChangeExtension(compressed_file, "dds");
+                    m.RoughnessMetallic = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, false);
+
+                    m.RoughnessMetallic.SetFilter(OpenTK.Graphics.OpenGL4.TextureMinFilter.LinearMipmapLinear, OpenTK.Graphics.OpenGL4.TextureMagFilter.Linear);
+
+                    //m.RoughnessMetallic = Texture.LoadTexture(Path.Combine(directory, material.TextureDiffuse.FilePath), true, false);
+                }
+                else
+                {
+                    // Create textures from the roughness and metallness parameters
+                    // alternatively make make it a completely white texture, that way we can have tint parameters.
+
+                    m.RoughnessMetallic = Texture.FromColor(new Color4(1.0f, 0.2f, 0.0f, 1.0f), false);
+                }
+
                 materials.Add(m);
             }
 

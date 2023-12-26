@@ -14,7 +14,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public Texture? Albedo;
         public Texture? Normal;
-        public Texture? Roughness;
+        public Texture? RoughnessMetallic;
 
         public Material(Shader shader, Shader? prepassShader)
         {
@@ -40,7 +40,7 @@ namespace DD2470_Clustered_Volume_Renderer
             comp = (mat1.Normal?.Handle ?? 0).CompareTo(mat2.Normal?.Handle ?? 0);
             if (comp != 0) return comp;
 
-            comp = (mat1.Roughness?.Handle ?? 0).CompareTo(mat2.Roughness?.Handle ?? 0);
+            comp = (mat1.RoughnessMetallic?.Handle ?? 0).CompareTo(mat2.RoughnessMetallic?.Handle ?? 0);
             if (comp != 0) return comp;
 
             return 0;

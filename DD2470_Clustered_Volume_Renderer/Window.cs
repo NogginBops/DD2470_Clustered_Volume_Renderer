@@ -47,10 +47,14 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public Texture DefaultAlbedo;
         public Texture DefaultNormal;
+        public Texture DefaultRoughnessMetallic;
 
         public Texture SkyboxRadiance;
         public Texture SkyboxIrradiance;
         public Material SkyboxMaterial;
+        public float SkyBoxExposure = 0.1f;
+
+        public Texture BrdfLUT;
 
         public Material DebugMaterial;
 
@@ -85,6 +89,8 @@ namespace DD2470_Clustered_Volume_Renderer
             HDRFramebuffer = Framebuffer.CreateHDRFramebuffer("HDR Framebuffer", FramebufferSize.X, FramebufferSize.Y);
 
             HiZMipFramebuffer = Framebuffer.CreateHiZFramebuffer("HI-Z Framebuffer", FramebufferSize.X, FramebufferSize.Y);
+
+            BrdfLUT = Texture.LoadTexture("./ibl_brdf_lut.png", false, true);
 
             Shader skyboxShader = Shader.CreateVertexFragment("Skybox Shader", "./Shaders/skybox.vert", "./Shaders/skybox.frag");
             SkyboxMaterial = new Material(skyboxShader, null);
@@ -122,6 +128,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             DefaultAlbedo = Texture.FromColor(Color4.White, true);
             DefaultNormal = Texture.FromColor(new Color4(0.5f, 0.5f, 1f, 1f), false);
+            DefaultRoughnessMetallic = Texture.FromColor(new Color4(1,1,1,1), false);
 
             Camera = new Camera(90, Size.X / (float)Size.Y, 0.1f, 10000f);
             Camera2 = new Camera(70, Size.X / (float)Size.Y, 50f, 1000f);
@@ -132,7 +139,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             // Octahedron mapped point light shadows put into a atlas?
 
-            const int NLights = 100;
+            const int NLights = 0;
             Random rand = new Random();
             Vector3 min = new Vector3(-300, 0, -100);
             Vector3 max = new Vector3(300, 200, 100);
@@ -146,12 +153,12 @@ namespace DD2470_Clustered_Volume_Renderer
                         rand.NextSingle() * 10000 + 1f));
             }
             // "sun"
-            Lights.Add(new PointLight(
+            /*Lights.Add(new PointLight(
                 new Vector3(0, 500, 0),
                 10000,
                 Color4.White,
                 1_000_00
-                ));
+                ));*/
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
 
@@ -270,6 +277,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             public Texture AlbedoTexture;
             public Texture NormalTexture;
+            public Texture RoughnessMetallicTexture;
 
             public int InstanceCount;
             public int BaseVertex;
@@ -462,6 +470,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     PrepassShader = baseRenderData.Entity.Mesh.Material.PrepassShader,
                     AlbedoTexture = baseRenderData.Entity.Mesh.Material.Albedo ?? DefaultAlbedo,
                     NormalTexture = baseRenderData.Entity.Mesh.Material.Normal ?? DefaultNormal,
+                    RoughnessMetallicTexture = baseRenderData.Entity.Mesh.Material.RoughnessMetallic ?? DefaultRoughnessMetallic,
                     InstanceCount = instanceCount,
                     BaseVertex = baseRenderData.Entity.Mesh.BaseVertex,
                     IndexCount = baseRenderData.Entity.Mesh.IndexCount,
@@ -644,15 +653,20 @@ namespace DD2470_Clustered_Volume_Renderer
 
                     Graphics.BindTexture(0, drawcall.AlbedoTexture);
                     Graphics.BindTexture(1, drawcall.NormalTexture);
+                    Graphics.BindTexture(2, drawcall.RoughnessMetallicTexture);
 
                     // FIXME: Get this from a skybox object?
                     Graphics.BindTexture(5, SkyboxIrradiance);
+                    Graphics.BindTexture(6, SkyboxRadiance);
+                    Graphics.BindTexture(7, BrdfLUT);
 
                     Graphics.BindShaderStorageBlock(0, LightBuffer);
                     Graphics.BindShaderStorageBlockRange(1, drawcall.InstanceData, drawcall.InstanceOffset * sizeof(InstanceData), drawcall.InstanceCount * sizeof(InstanceData));
 
                     // FIXME: We assume the camera transform has no parent.
                     GL.Uniform3(10, Camera.Transform.LocalPosition);
+
+                    GL.Uniform1(15, SkyBoxExposure);
 
                     if (drawcall.Shader == DefaultMaterialAlphaCutout.Shader)
                     {
@@ -685,6 +699,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
                     Matrix4 centeredVP = new Matrix4(new Matrix3(viewMatrix)) * projectionMatrix;
                     GL.UniformMatrix4(0, true, ref centeredVP);
+                    GL.Uniform1(15, SkyBoxExposure);
 
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);
