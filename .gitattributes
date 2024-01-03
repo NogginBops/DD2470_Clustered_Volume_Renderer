@@ -1,4 +1,4 @@
 *.png filter=lfs diff=lfs merge=lfs -text
 *.dds filter=lfs diff=lfs merge=lfs -text
-*.hdr text eol=lf
+*.hdr binary
 *.bin binary
