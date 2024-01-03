@@ -1,7 +1,10 @@
-﻿using System;
+﻿using Assimp;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -59,6 +62,8 @@ namespace DD2470_Clustered_Volume_Renderer
         public int MipmapCount;
 
         public DDSImageFormat Format;
+        public DDSImageType Type;
+        public DDSCubemapFaces Faces;
 
         public byte[] AllData;
     }
@@ -70,6 +75,8 @@ namespace DD2470_Clustered_Volume_Renderer
         public int MipmapCount;
 
         public DDSImageFormat Format;
+        public DDSImageType Type;
+        public DDSCubemapFaces Faces;
 
         public Span<byte> AllData;
     }
@@ -79,6 +86,26 @@ namespace DD2470_Clustered_Volume_Renderer
         BC5_UNORM,
         BC7_UNORM,
         BC7_UNORM_SRGB,
+        RGBA16F,
+        RGBA32F,
+    }
+
+    enum DDSImageType
+    {
+        Texture2D,
+        CubeMap,
+    }
+
+    [Flags]
+    enum DDSCubemapFaces : int
+    {
+        None = 0,
+        PosX = 1 << 0,
+        NegX = 1 << 1,
+        PosY = 1 << 2,
+        NegY = 1 << 3,
+        PosZ = 1 << 4,
+        NegZ = 1 << 5,
     }
 
     internal class DDSReader
@@ -112,42 +139,82 @@ namespace DD2470_Clustered_Volume_Renderer
                     throw new FormatException("We only support loading FourCC dds textures atm.");
                 }
 
+                bool isCubemap = false;
+                DDSCubemapFaces faces = DDSCubemapFaces.None;
+                if (header->dwCaps2.HasFlag(DDSCAPS2.CUBEMAP))
+                {
+                    isCubemap = true;
+
+                    if (header->dwCaps2.HasFlag(DDSCAPS2.CUBEMAP_POSITIVEX))
+                        faces |= DDSCubemapFaces.PosX;
+
+                    if (header->dwCaps2.HasFlag(DDSCAPS2.CUBEMAP_NEGATIVEX))
+                        faces |= DDSCubemapFaces.NegX;
+
+                    if (header->dwCaps2.HasFlag(DDSCAPS2.CUBEMAP_POSITIVEY))
+                        faces |= DDSCubemapFaces.PosY;
+
+                    if (header->dwCaps2.HasFlag(DDSCAPS2.CUBEMAP_NEGATIVEY))
+                        faces |= DDSCubemapFaces.NegY;
+
+                    if (header->dwCaps2.HasFlag(DDSCAPS2.CUBEMAP_POSITIVEZ))
+                        faces |= DDSCubemapFaces.PosZ;
+
+                    if (header->dwCaps2.HasFlag(DDSCAPS2.CUBEMAP_NEGATIVEZ))
+                        faces |= DDSCubemapFaces.NegZ;
+                }
+
                 int mipmapCount = 1;
-                // FIXME: This is probably not correct for most formats.
-                int dataSize = (int)header->dwWidth * (int)header->dwHeight;
                 if (header->dwFlags.HasFlag(DDSD.MIPMAPCOUNT))
                 {
                     mipmapCount = (int)header->dwMipMapCount;
-                    // FIXME: Some way to analytically compute this..?
-                    dataSize = 0;
-                    int mipWidth = (int)header->dwWidth;
-                    int mipHeight = (int)header->dwHeight;
-                    for (int i = 0; i < mipmapCount; i++)
-                    {
-                        // A block is at minium 16 bytes.
-                        dataSize += Math.Max(mipWidth * mipHeight, 16);
-
-                        mipWidth = Math.Max(1, mipWidth / 2);
-                        mipHeight = Math.Max(1, mipHeight / 2);
-                    }
                 }
 
                 ReadOnlySpan<byte> fourCC = new ReadOnlySpan<byte>(header->ddspf.dwFourCC, 4);
                 if (fourCC.SequenceEqual("DX10"u8))
                 {
                     DDS_HEADER_DXT10* dx10 = (DDS_HEADER_DXT10*)(header + 1);
-                    
+
                     DDSImageFormat imageFormat;
+                    int dataSize;
                     switch (dx10->dxgiFormat)
                     {
                         case DXGI_FORMAT.BC7_UNORM:
-                            imageFormat = DDSImageFormat.BC7_UNORM;
-                            break;
+                            {
+                                imageFormat = DDSImageFormat.BC7_UNORM;
+                                int blockSize = 16;
+                                dataSize = CalculateSizeBlockCompressed((int)header->dwWidth, (int)header->dwHeight, mipmapCount, blockSize);
+                                break;
+                            }
                         case DXGI_FORMAT.BC7_UNORM_SRGB:
-                            imageFormat = DDSImageFormat.BC7_UNORM_SRGB;
-                            break;
+                            {
+                                imageFormat = DDSImageFormat.BC7_UNORM_SRGB;
+                                int blockSize = 16;
+                                dataSize = CalculateSizeBlockCompressed((int)header->dwWidth, (int)header->dwHeight, mipmapCount, blockSize);
+                                break;
+                            }
+                        case DXGI_FORMAT.R16G16B16A16_FLOAT:
+                            {
+                                imageFormat = DDSImageFormat.RGBA16F;
+                                int bytesPerPixel = 8;
+                                dataSize = CalculateSize((int)header->dwWidth, (int)header->dwHeight, mipmapCount, bytesPerPixel);
+                                break;
+                            }
+                        case DXGI_FORMAT.R32G32B32A32_FLOAT:
+                            {
+                                imageFormat = DDSImageFormat.RGBA32F;
+                                int bytesPerPixel = 16;
+                                dataSize = CalculateSize((int)header->dwWidth, (int)header->dwHeight, mipmapCount, bytesPerPixel);
+                                break;
+                            }
                         default:
                             throw new FormatException($"We don't support '{dx10->dxgiFormat}' formatted DDS images yet.");
+                    }
+
+                    if (isCubemap)
+                    {
+                        int noFaces = BitOperations.PopCount((uint)faces);
+                        dataSize *= noFaces;
                     }
 
                     Span<byte> data = new Span<byte>((byte*)(dx10 + 1), dataSize);
@@ -157,6 +224,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     image.Height = (int)header->dwHeight;
                     image.MipmapCount = mipmapCount;
                     image.Format = imageFormat;
+                    image.Type = isCubemap ? DDSImageType.CubeMap : DDSImageType.Texture2D;
+                    image.Faces = faces;
 
                     // FIXME: Maybe upload the data directly to the GPU?
                     image.AllData = data;
@@ -166,7 +235,13 @@ namespace DD2470_Clustered_Volume_Renderer
                 else if (fourCC.SequenceEqual("ATI2"u8))
                 {
                     // This is Bc5 with another name...
-                    
+                    int blockSize = 16;
+                    int dataSize = CalculateSizeBlockCompressed((int)header->dwWidth, (int)header->dwHeight, mipmapCount, blockSize);
+                    if (isCubemap)
+                    {
+                        int noFaces = BitOperations.PopCount((uint)faces);
+                        dataSize *= noFaces;
+                    }
                     Span<byte> data = new Span<byte>((byte*)(header + 1), dataSize);
 
                     DDSImageRef image;
@@ -174,6 +249,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     image.Height = (int)header->dwHeight;
                     image.MipmapCount = mipmapCount;
                     image.Format = DDSImageFormat.BC5_UNORM;
+                    image.Type = isCubemap ? DDSImageType.CubeMap : DDSImageType.Texture2D;
+                    image.Faces = faces;
 
                     image.AllData = data;
 
@@ -183,6 +260,40 @@ namespace DD2470_Clustered_Volume_Renderer
                 {
                     throw new Exception($"We don't support this format yet. '{Encoding.UTF8.GetString(fourCC)}'");
                 }
+            }
+
+            static int CalculateSizeBlockCompressed(int width, int height, int mipmapCount, int blockSize)
+            {
+                int dataSize = 0;
+                int mipWidth = width;
+                int mipHeight = height;
+                for (int i = 0; i < mipmapCount; i++)
+                {
+                    // A block is at minium 16 bytes.
+                    dataSize += Math.Max(mipWidth * mipHeight, 16);
+
+                    mipWidth = Math.Max(1, mipWidth / 2);
+                    mipHeight = Math.Max(1, mipHeight / 2);
+                }
+
+                return dataSize;
+            }
+
+            static int CalculateSize(int width, int height, int mipmapCount, int bytesPerPixel)
+            {
+                int dataSize = 0;
+                int mipWidth = width;
+                int mipHeight = height;
+                for (int i = 0; i < mipmapCount; i++)
+                {
+                    // A block is at minium 16 bytes.
+                    dataSize += mipWidth * mipHeight * bytesPerPixel;
+
+                    mipWidth = Math.Max(1, mipWidth / 2);
+                    mipHeight = Math.Max(1, mipHeight / 2);
+                }
+
+                return dataSize;
             }
         }
 
@@ -195,6 +306,8 @@ namespace DD2470_Clustered_Volume_Renderer
             image.Height = imageRef.Height;
             image.MipmapCount = imageRef.MipmapCount;
             image.Format = imageRef.Format;
+            image.Type = imageRef.Type;
+            image.Faces = imageRef.Faces;
             image.AllData = imageRef.AllData.ToArray();
             return image;
         }
@@ -225,6 +338,45 @@ namespace DD2470_Clustered_Volume_Renderer
             Texture texture = Texture.LoadTexture(path, imageRef, generateMipmaps);
             accessor.SafeMemoryMappedViewHandle.ReleasePointer();
             return texture;
+        }
+
+        public static unsafe Texture LoadCubeMapDirectoryTexture(string directory, bool generateMipmaps)
+        {
+            // This is the OpenGL layer order for cubemaps.
+            ReadOnlySpan<string> faces = ["px", "nx", "py", "ny", "pz", "nz"];
+
+            bool hasStorage = false;
+
+            int mipmapLevels = 1;
+            int width = 0;
+            int height = 0;
+
+            for (int i = 0; i < faces.Length; i++)
+            {
+                string face = faces[i];
+
+                string path = Path.Combine(directory, $"{face}.dds");
+
+                DDSImage image = LoadImage(path);
+
+                // FIXME: Assert that the dimentions don't change between faces?
+                width = image.Width;
+                height = image.Height;
+            }
+
+            //return new Texture(texture, width, height, 6, mipmapLevels, format);
+            return default;
+        }
+
+        public static unsafe Texture LoadCubeMapTexture(string path, bool generateMipmaps, bool force_srgb)
+        {
+            byte[] fileContents = File.ReadAllBytes(path);
+            DDSImageRef imageRef = LoadImage(fileContents);
+            if (imageRef.Format == DDSImageFormat.BC7_UNORM && force_srgb)
+            {
+                imageRef.Format = DDSImageFormat.BC7_UNORM_SRGB;
+            }
+            return Texture.LoadTexture(path, imageRef, generateMipmaps);
         }
     }
 

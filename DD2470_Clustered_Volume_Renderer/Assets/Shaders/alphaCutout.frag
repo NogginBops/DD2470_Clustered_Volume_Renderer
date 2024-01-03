@@ -2,7 +2,7 @@
 
 in vec3 v_position;
 in vec3 v_normal;
-in vec3 v_tangent;
+in vec4 v_tangent;
 in vec2 v_uv0;
 
 out vec4 f_color;
@@ -164,8 +164,8 @@ void main()
         discard;
 
 	vec3 normal = normalize(gl_FrontFacing ? v_normal : -v_normal);
-	vec3 tangent = normalize(v_tangent);
-	vec3 bitangent = cross(normal, tangent);
+	vec3 tangent = normalize(v_tangent.xyz);
+	vec3 bitangent = cross(normal, tangent) * v_tangent.w;
 
 	mat3 tangentToWorld = mat3(tangent, bitangent, normal);
 	vec3 texNormal;

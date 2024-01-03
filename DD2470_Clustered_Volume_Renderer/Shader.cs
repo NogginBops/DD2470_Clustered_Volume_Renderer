@@ -9,12 +9,23 @@ namespace DD2470_Clustered_Volume_Renderer
 {
     internal class Shader
     {
+        public static readonly List<WeakReference<Shader>> AllShaders = new List<WeakReference<Shader>>();
+
+        public string Name;
         public int Handle;
         // Add hot reload information.
 
-        public Shader(int handle)
+        public string? VertexPath;
+        public string? FragmentPath;
+
+        public string? ComputePath;
+        
+        public Shader(string name, int handle)
         {
+            Name = name;
             Handle = handle;
+
+            AllShaders.Add(new WeakReference<Shader>(this));
         }
 
         public static Shader CreateVertexFragment(string name, string vertexPath, string fragmentPath)
@@ -27,17 +38,22 @@ namespace DD2470_Clustered_Volume_Renderer
 
             int program = LinkProgram(name, stackalloc int[2] { vertex, fragment });
 
-            return new Shader(program);
+            Shader shader = new Shader(name, program);
+            shader.VertexPath = vertexPath;
+            shader.FragmentPath = fragmentPath;
+            return shader;
         }
 
         public static Shader CreateCompute(string name, string computePath)
         {
             string computeSource = File.ReadAllText(computePath);
 
-            int shader = CompileShader($"{name}_compute", ShaderType.ComputeShader, computeSource);
-            int program = LinkProgram(name, stackalloc int[1] { shader });
+            int computeShader = CompileShader($"{name}_compute", ShaderType.ComputeShader, computeSource);
+            int program = LinkProgram(name, stackalloc int[1] { computeShader });
 
-            return new Shader(program);
+            Shader shader = new Shader(name, program);
+            shader.ComputePath = computePath;
+            return shader;
         }
 
         public static int LinkProgram(string name, ReadOnlySpan<int> shaders)
@@ -88,6 +104,55 @@ namespace DD2470_Clustered_Volume_Renderer
             }
 
             return shader;
+        }
+
+        public static void RecompileAllShaders()
+        {
+            foreach (var shaderRef in AllShaders)
+            {
+                if (shaderRef.TryGetTarget(out Shader? shader))
+                {
+                    shader.RecompileShader();
+                }
+            }
+
+            // Remove all garbage collected shaders.
+            AllShaders.RemoveAll(wr => wr.TryGetTarget(out _) == false);
+        }
+
+        public void RecompileShader()
+        {
+            if (ComputePath == null)
+            {
+                // Vertex fragment shader
+                int vert = CompileShader($"{Name}_vertex", ShaderType.VertexShader, File.ReadAllText(VertexPath!));
+                int frag = CompileShader($"{Name}_fragment", ShaderType.FragmentShader, File.ReadAllText(FragmentPath!));
+
+                int program = LinkProgram(Name, stackalloc int[2] { vert, frag });
+
+                if (program != 0)
+                {
+                    Handle = program;
+                }
+                else
+                {
+                    // Set a default error shader...
+                }
+            }
+            else
+            {
+                int comp = CompileShader($"{Name}_compute", ShaderType.ComputeShader, File.ReadAllText(ComputePath));
+                int program = LinkProgram(Name, stackalloc int[1] { comp });
+
+                if (program != 0)
+                {
+                    Handle = program;
+                }
+                else
+                {
+                    // Set error shader??
+                }
+            }
         }
     }
 }

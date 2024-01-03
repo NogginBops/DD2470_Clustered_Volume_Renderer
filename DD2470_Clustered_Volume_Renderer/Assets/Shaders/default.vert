@@ -2,12 +2,12 @@
 
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
-layout(location = 2) in vec3 in_tangent;
+layout(location = 2) in vec4 in_tangent;
 layout(location = 3) in vec2 in_uv0;
 
 out vec3 v_position;
 out vec3 v_normal;
-out vec3 v_tangent;
+out vec4 v_tangent;
 out vec2 v_uv0;
 
 //layout(location = 0) uniform mat4 u_mvp;
@@ -31,6 +31,6 @@ void main()
 	gl_Position = vec4(in_position, 1.0) * instanceData.MVP;
 	v_position = (vec4(in_position, 1.0) * instanceData.ModelMatrix).xyz;
 	v_normal = in_normal * mat3(instanceData.NormalMatrix);
-	v_tangent = in_tangent * mat3(instanceData.NormalMatrix);
+	v_tangent = vec4(in_tangent.xyz * mat3(instanceData.NormalMatrix), in_tangent.w);
 	v_uv0 = in_uv0;
 }

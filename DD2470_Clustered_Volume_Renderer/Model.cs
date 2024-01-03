@@ -51,27 +51,33 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public static PackedNormal Pack(Vector3 normal)
         {
-            return new PackedNormal(PackNormal(normal));
+            return new PackedNormal(PackNormal(normal, true));
         }
 
-        public static uint PackNormal(Vector3 normal)
+        public static PackedNormal Pack(Vector3 normal, bool positiveW)
+        {
+            return new PackedNormal(PackNormal(normal, positiveW));
+        }
+
+        public static uint PackNormal(Vector3 normal, bool positiveW)
         {
             // FIXME: Make full use of the -2^9, 2^9 - 1 range?
             uint x = (uint)((int)(normal.X * 511) & 0x000003FF);
             uint y = (uint)((int)(normal.Y * 511) & 0x000003FF);
             uint z = (uint)((int)(normal.Z * 511) & 0x000003FF);
-            uint w = 0b01;
+            uint w = positiveW ? (uint)0b01 : (uint)0b11;
             return w << 30 | z << 20 | y << 10 | x;
         }
 
-        public static Vector3 UnpackNormal(uint normal)
+        public static Vector4 UnpackNormal(uint normal)
         {
             // FIXME: Make full use of the -2^9, 2^9 - 1 range?
             int x = ((int)(((normal >> 00) & 0x03FF) << 22)) >> 22;
             int y = ((int)(((normal >> 10) & 0x03FF) << 22)) >> 22;
             int z = ((int)(((normal >> 20) & 0x03FF) << 22)) >> 22;
+            int w = ((int)(((normal >> 30) & 0x03FF) << 30)) >> 30;
 
-            return new Vector3(x / 511f, y / 511f, z / 511f);
+            return new Vector4(x / 511f, y / 511f, z / 511f, w);
         }
 
         public override string ToString()
@@ -179,7 +185,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     m.Albedo = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, true);
 
                     m.Albedo.SetFilter(OpenTK.Graphics.OpenGL4.TextureMinFilter.LinearMipmapLinear, OpenTK.Graphics.OpenGL4.TextureMagFilter.Linear);
-
+                    m.Albedo.SetAniso(16);
                     //m.Albedo = Texture.LoadTexture(Path.Combine(directory, material.TextureDiffuse.FilePath), true, true);
                 }
 
@@ -192,7 +198,6 @@ namespace DD2470_Clustered_Volume_Renderer
                     //ImageResult result = ImageResult.FromMemory(texture.CompressedData, ColorComponents.RedGreenBlueAlpha);
                     //m.Normal = Texture.FromImage(path, result, false, true);
 
-                    // FIXME: Set filter settings!
                     string path = material.TextureNormal.FilePath;
                     string compressed_file = path.Replace("textures", "textures_compressed");
                     compressed_file = Path.ChangeExtension(compressed_file, "dds");
@@ -201,6 +206,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     //m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureNormal.FilePath), false, true);
                     
                     m.Normal.SetFilter(OpenTK.Graphics.OpenGL4.TextureMinFilter.LinearMipmapLinear, OpenTK.Graphics.OpenGL4.TextureMagFilter.Linear);
+                    m.Normal.SetAniso(16);
                 }
                 // FIXME: the sponza we load puts normal maps as dispacement maps...
                 else if (material.HasTextureDisplacement)
@@ -211,6 +217,9 @@ namespace DD2470_Clustered_Volume_Renderer
                     m.Normal = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, false);
 
                     //m.Normal = Texture.LoadTexture(Path.Combine(directory, material.TextureDisplacement.FilePath), false, true);
+
+                    m.Normal.SetFilter(OpenTK.Graphics.OpenGL4.TextureMinFilter.LinearMipmapLinear, OpenTK.Graphics.OpenGL4.TextureMagFilter.Linear);
+                    m.Normal.SetAniso(16);
                 }
 
                 if (material.PBR.HasTextureRoughness)
@@ -228,6 +237,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     m.RoughnessMetallic = DDSReader.LoadTexture(Path.Combine(directory, compressed_file), true, false);
 
                     m.RoughnessMetallic.SetFilter(OpenTK.Graphics.OpenGL4.TextureMinFilter.LinearMipmapLinear, OpenTK.Graphics.OpenGL4.TextureMagFilter.Linear);
+                    m.RoughnessMetallic.SetAniso(16);
 
                     //m.RoughnessMetallic = Texture.LoadTexture(Path.Combine(directory, material.TextureDiffuse.FilePath), true, false);
                 }
@@ -278,9 +288,11 @@ namespace DD2470_Clustered_Volume_Renderer
                 Span<Vector3D> normals = CollectionsMarshal.AsSpan(mesh.Normals);
                 // FIXME: Store the sign of the bitangent in there as well?
                 Span<Vector3D> tangents = CollectionsMarshal.AsSpan(mesh.Tangents);
+                Span<Vector3D> bitangents = CollectionsMarshal.AsSpan(mesh.BiTangents);
                 Span<Vector3D> UVs = CollectionsMarshal.AsSpan(mesh.TextureCoordinateChannels[0]);
                 VertexAttributes[] attribs = new VertexAttributes[normals.Length];
-                InterleaveBuffers(attribs, normals, tangents, UVs);
+
+                InterleaveBuffers(attribs, normals, tangents, bitangents, UVs);
                 meshAttributes.AddRange(attribs);
 
                 int index_count;
@@ -311,12 +323,14 @@ namespace DD2470_Clustered_Volume_Renderer
                 m.AABB = new Box3(Unsafe.As<Vector3D, Vector3>(ref bounds.Min), Unsafe.As<Vector3D, Vector3>(ref bounds.Max));
                 meshes.Add(m);
                 
-                static void InterleaveBuffers(Span<VertexAttributes> interleaved, Span<Vector3D> normals, Span<Vector3D> tangents, Span<Vector3D> UVs)
+                static void InterleaveBuffers(Span<VertexAttributes> interleaved, Span<Vector3D> normals, Span<Vector3D> tangents, Span<Vector3D> bitangents, Span<Vector3D> UVs)
                 {
                     for (int i = 0; i < interleaved.Length; i++)
                     {
+                        bool positiveW = Vector3D.Dot(Vector3D.Cross(normals[i], tangents[i]), bitangents[i]) > 0;
+                        
                         interleaved[i].Normal = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref normals[i]));
-                        interleaved[i].Tangent = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref tangents[i]));
+                        interleaved[i].Tangent = PackedNormal.Pack(Unsafe.As<Vector3D, Vector3>(ref tangents[i]), positiveW);
                         interleaved[i].UVs = Unsafe.As<Vector3D, Vector3>(ref UVs[i]).Xy;
                     }
                 }

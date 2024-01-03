@@ -30,33 +30,74 @@ namespace DD2470_Clustered_Volume_Renderer
             static extern void GetCurrentThreadStackLimits(out nuint lowLimit, out nuint highLimit);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static System.Numerics.Vector3 ToNumerics(this Vector3 vec3) =>
           Unsafe.As<Vector3, System.Numerics.Vector3>(ref vec3);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static System.Numerics.Vector4 ToNumerics(this Vector4 vec4) =>
           Unsafe.As<Vector4, System.Numerics.Vector4>(ref vec4);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static ref System.Numerics.Vector3 AsNumerics(ref this Vector3 vec3) =>
             ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref vec3);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static ref Vector3 AsOpenTK(ref this System.Numerics.Vector3 vec3) =>
             ref Unsafe.As<System.Numerics.Vector3, Vector3>(ref vec3);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static ref System.Numerics.Vector4 AsNumerics(ref this Vector4 vec4) =>
             ref Unsafe.As<Vector4, System.Numerics.Vector4>(ref vec4);
 
-        public static ref Vector4 AsNumerics(ref this System.Numerics.Vector4 vec4) =>
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public static System.Runtime.Intrinsics.Vector128<float> ToVector128(this Vector3 vec3)
+        {
+            Vector4 vec4 = new Vector4(vec3);
+            return Unsafe.As<Vector4, System.Runtime.Intrinsics.Vector128<float>>(ref vec4);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public static ref Vector3 AsVector3(ref this System.Runtime.Intrinsics.Vector128<float> vec128)
+        {
+            return ref Unsafe.As<System.Runtime.Intrinsics.Vector128<float>, Vector3>(ref vec128);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public static Vector3 ToVector3(this System.Runtime.Intrinsics.Vector128<float> vec128)
+        {
+            return Unsafe.As<System.Runtime.Intrinsics.Vector128<float>, Vector3>(ref vec128);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public static ref System.Runtime.Intrinsics.Vector128<float> AsVector128(ref this Vector4 vec4) =>
+            ref Unsafe.As<Vector4, System.Runtime.Intrinsics.Vector128<float>>(ref vec4);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public static System.Runtime.Intrinsics.Vector128<float> ToVector128(this Vector4 vec4) =>
+            Unsafe.As<Vector4, System.Runtime.Intrinsics.Vector128<float>>(ref vec4);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public static ref System.Runtime.Intrinsics.Vector128<float> AsVector128(ref this System.Numerics.Plane plane) =>
+            ref Unsafe.As<System.Numerics.Plane, System.Runtime.Intrinsics.Vector128<float>>(ref plane);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public static ref Vector4 AsOpenTK(ref this System.Numerics.Vector4 vec4) =>
             ref Unsafe.As<System.Numerics.Vector4, Vector4>(ref vec4);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static ref System.Numerics.Quaternion AsNumerics(ref this Quaternion quat) =>
             ref Unsafe.As<Quaternion, System.Numerics.Quaternion>(ref quat);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static ref Quaternion AsOpenTK(ref this System.Numerics.Quaternion quat) =>
             ref Unsafe.As<System.Numerics.Quaternion, Quaternion>(ref quat);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static ref System.Numerics.Vector4 AsNumerics4(ref this Color4 col) =>
             ref Unsafe.As<Color4, System.Numerics.Vector4>(ref col);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public static ref System.Numerics.Vector3 AsNumerics3(ref this Color4 col) =>
             ref Unsafe.As<Color4, System.Numerics.Vector3>(ref col);
 

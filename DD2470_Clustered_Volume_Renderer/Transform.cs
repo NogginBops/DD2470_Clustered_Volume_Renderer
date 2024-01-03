@@ -4,24 +4,39 @@ namespace DD2470_Clustered_Volume_Renderer
 {
     internal class Transform
     {
+        public Quaternion UnsafeRotation;
+        public Vector3 UnsafePosition;
+        public Vector3 UnsafeScale;
 
-        public Quaternion LocalRotation;
-        public Vector3 LocalPosition;
-        public Vector3 LocalScale;
+        public Quaternion LocalRotation { get => UnsafeRotation; set { IsDirty = true; UnsafeRotation = value; } }
+        public Vector3 LocalPosition { get => UnsafePosition; set { IsDirty = true; UnsafePosition = value; } }
+        public Vector3 LocalScale { get => UnsafeScale; set { IsDirty = true; UnsafeScale = value; } }
+
+        private Matrix4 CachedLocalToParent;
+        public bool IsDirty { get; set; }
 
         public Matrix4 LocalToParent
         {
             get
             {
-                Matrix4 matrix;
-                Matrix3.CreateFromQuaternion(LocalRotation, out Matrix3 rotation);
+                if (IsDirty == false)
+                {
+                    return CachedLocalToParent;
+                }
+                else
+                {
+                    Matrix4 matrix;
+                    Matrix3.CreateFromQuaternion(LocalRotation, out Matrix3 rotation);
 
-                matrix.Row0 = new Vector4(rotation.Row0 * LocalScale.X, 0);
-                matrix.Row1 = new Vector4(rotation.Row1 * LocalScale.Y, 0);
-                matrix.Row2 = new Vector4(rotation.Row2 * LocalScale.Z, 0);
-                matrix.Row3 = new Vector4(LocalPosition, 1);
+                    matrix.Row0 = new Vector4(rotation.Row0 * LocalScale.X, 0);
+                    matrix.Row1 = new Vector4(rotation.Row1 * LocalScale.Y, 0);
+                    matrix.Row2 = new Vector4(rotation.Row2 * LocalScale.Z, 0);
+                    matrix.Row3 = new Vector4(LocalPosition, 1);
 
-                return matrix;
+                    CachedLocalToParent = matrix;
+                    IsDirty = false;
+                    return matrix;
+                }
             }
         }
 

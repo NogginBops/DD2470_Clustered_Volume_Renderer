@@ -2,7 +2,7 @@
 
 in vec3 v_position;
 in vec3 v_normal;
-in vec3 v_tangent;
+in vec4 v_tangent;
 in vec2 v_uv0;
 
 out vec4 f_color;
@@ -161,14 +161,22 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 void main()
 {
 	vec3 normal = normalize(gl_FrontFacing ? v_normal : -v_normal);
-	vec3 tangent = normalize(v_tangent);
-	vec3 bitangent = cross(normal, tangent);
+	vec3 tangent = normalize(v_tangent.xyz);
+	vec3 bitangent = cross(tangent, normal) * v_tangent.w;
 
 	mat3 tangentToWorld = mat3(tangent, bitangent, normal);
 	vec3 texNormal;
+#if 1
 	texNormal.xy = texture(tex_Normal, v_uv0).rg * 2.0 - 1.0;
 	texNormal.z = sqrt(clamp(1 - dot(texNormal.xy, texNormal.xy), 0.0, 1.0));
+#else
+	texNormal = texture(tex_Normal, v_uv0).rgb * 2.0 - 1.0;
+#endif
+	texNormal = normalize(texNormal);
 	normal = normalize(tangentToWorld * texNormal);
+
+	//f_color = vec4(texNormala, 1.0);
+	//return;
 
 	Surface surface;
 	surface.TangentToWorld = tangentToWorld;
@@ -179,8 +187,8 @@ void main()
 	// FIXME: At the moment we have roughtness in the G channel and metallic in the B channel
 	// we might want to use or remove the first channel...?
 	vec2 roughnessMetallic = texture(tex_RoughnessMetallic, v_uv0).yz;
-	surface.Roughness = clamp(roughnessMetallic.x, 0.6, 1.0);
-	surface.Metallic = roughnessMetallic.y;
+	surface.Roughness = clamp(roughnessMetallic.x, 0.0, 1.0);
+	surface.Metallic = clamp(roughnessMetallic.y, 0.0, 1.0);
 	surface.F0 = mix(vec3(0.04), surface.Albedo, surface.Metallic);
 
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
@@ -200,12 +208,12 @@ void main()
 		vec3 irradiance = texture(tex_Irradiance, surface.Normal).rgb * u_Exposure;
 		vec3 diffuse = irradiance * surface.Albedo;
 
-		const float MAX_REFLECTION_LOD = 10.0;
+		const float MAX_REFLECTION_LOD = 9.0;
 		vec3 prefilteredColor = textureLod(tex_Radiance, surface.ReflectionDirection,  surface.Roughness * MAX_REFLECTION_LOD).rgb * u_Exposure;
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		color += /*diffuse * kD +*/ specular;
+		color += diffuse * kD + specular;
 	}
 	
 	f_color = vec4(color, 1.0);

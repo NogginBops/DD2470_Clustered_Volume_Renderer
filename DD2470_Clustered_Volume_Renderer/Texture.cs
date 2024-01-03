@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -15,6 +16,15 @@ namespace DD2470_Clustered_Volume_Renderer
 {
     internal class Texture
     {
+        private static ReadOnlySpan<DDSCubemapFaces> OpenGLCubemapFaceOrder => [
+            DDSCubemapFaces.PosX, 
+            DDSCubemapFaces.NegX,
+            DDSCubemapFaces.PosY,
+            DDSCubemapFaces.NegY,
+            DDSCubemapFaces.PosZ,
+            DDSCubemapFaces.NegZ,
+        ];
+
         public int Handle;
         public int Width, Height, Depth;
         public SizedInternalFormat Format;
@@ -171,6 +181,9 @@ namespace DD2470_Clustered_Volume_Renderer
             imageRef.Height = image.Height;
             imageRef.MipmapCount = image.MipmapCount;
             imageRef.Format = image.Format;
+            imageRef.Type = image.Type;
+            imageRef.Faces = image.Faces;
+
             imageRef.AllData = image.AllData;
             Texture texture = LoadTexture(name, imageRef, generateMipmap);
             return texture;
@@ -181,44 +194,122 @@ namespace DD2470_Clustered_Volume_Renderer
             int mipmapLevels = generateMipmap ?
                 MathF.ILogB(Math.Max(image.Width, image.Height)) + 1 :
                 image.MipmapCount;
-
+            
             int imageMips = Math.Min(mipmapLevels, image.MipmapCount);
 
-            SizedInternalFormat format;
+            int depth;
+            TextureTarget target;
+            switch (image.Type)
+            {
+                case DDSImageType.Texture2D:
+                    target = TextureTarget.Texture2D;
+                    depth = 1;
+                    break;
+                case DDSImageType.CubeMap:
+                    target = TextureTarget.TextureCubeMap;
+                    depth = 6;
+                    break;
+                default:
+                    throw new Exception($"Unknown texture type: '{image.Type}'");
+            }
+
+            int bytesPerPixel;
+            SizedInternalFormat internalFormat;
+            PixelFormat pixelFormat = 0;
+            PixelType pixelType = 0;
+            bool compressed;
             switch (image.Format)
             {
                 case DDSImageFormat.BC5_UNORM:
                     // FIXME: Should it be unsigned or signed?
-                    format = (SizedInternalFormat)All.CompressedRgRgtc2;
+                    internalFormat = (SizedInternalFormat)All.CompressedRgRgtc2;
+                    compressed = true;
+                    bytesPerPixel = 1;
                     break;
                 case DDSImageFormat.BC7_UNORM:
                     // FIXME: Is this supposed to be sRGB?
-                    format = (SizedInternalFormat)All.CompressedRgbaBptcUnorm;
+                    internalFormat = (SizedInternalFormat)All.CompressedRgbaBptcUnorm;
+                    compressed = true;
+                    bytesPerPixel = 1;
                     break;
                 case DDSImageFormat.BC7_UNORM_SRGB:
                     // FIXME: Is this supposed to be sRGB?
-                    format = (SizedInternalFormat)All.CompressedSrgbAlphaBptcUnorm;
+                    internalFormat = (SizedInternalFormat)All.CompressedSrgbAlphaBptcUnorm;
+                    compressed = true;
+                    bytesPerPixel = 1;
+                    break;
+                case DDSImageFormat.RGBA16F:
+                    internalFormat = SizedInternalFormat.Rgba16f;
+                    pixelFormat = PixelFormat.Rgba;
+                    pixelType = PixelType.HalfFloat;
+                    compressed = false;
+                    bytesPerPixel = 8;
+                    break;
+                case DDSImageFormat.RGBA32F:
+                    internalFormat = SizedInternalFormat.Rgba32f;
+                    pixelFormat = PixelFormat.Rgba;
+                    pixelType = PixelType.Float;
+                    compressed = false;
+                    bytesPerPixel = 16;
                     break;
                 default:
                     throw new Exception();
             }
 
-            GL.CreateTextures(TextureTarget.Texture2D, 1, out int texture);
-
+            GL.CreateTextures(target, 1, out int texture);
             GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
 
-            GL.TextureStorage2D(texture, mipmapLevels, format, image.Width, image.Height);
+            GL.TextureStorage2D(texture, mipmapLevels, internalFormat, image.Width, image.Height);
 
-            int dataOffset = 0;
-            int mipWidth = image.Width;
-            int mipHeight = image.Height;
-            for (int i = 0; i < imageMips; i++)
+            if (image.Type == DDSImageType.CubeMap)
             {
-                int dataLength = mipWidth * mipHeight;
-                GL.CompressedTextureSubImage2D(texture, i, 0, 0, mipWidth, mipHeight, (PixelFormat)format, dataLength, (nint)Unsafe.AsPointer(ref image.AllData[dataOffset]));
-                dataOffset += mipWidth * mipHeight;
-                mipWidth = Math.Max(1, mipWidth / 2);
-                mipHeight = Math.Max(1, mipHeight / 2);
+                int dataOffset = 0;
+                int layer = -1;
+                foreach (var face in OpenGLCubemapFaceOrder)
+                {
+                    layer++;
+                    if (image.Faces.HasFlag(face) == false)
+                        continue;
+
+                    int mipWidth = image.Width;
+                    int mipHeight = image.Height;
+                    for (int i = 0; i < imageMips; i++)
+                    {
+                        int dataLength = mipWidth * mipHeight * bytesPerPixel;
+                        if (compressed)
+                        {
+                            GL.CompressedTextureSubImage3D(texture, i, 0, 0, layer, mipWidth, mipHeight, 1, (PixelFormat)internalFormat, dataLength, (nint)Unsafe.AsPointer(ref image.AllData[dataOffset]));
+                        }
+                        else
+                        {
+                            GL.TextureSubImage3D(texture, i, 0, 0, layer, mipWidth, mipHeight, 1, pixelFormat, pixelType, (nint)Unsafe.AsPointer(ref image.AllData[dataOffset]));
+                        }
+                        dataOffset += dataLength;
+                        mipWidth = Math.Max(1, mipWidth / 2);
+                        mipHeight = Math.Max(1, mipHeight / 2);
+                    }
+                }
+            }
+            else
+            {
+                int dataOffset = 0;
+                int mipWidth = image.Width;
+                int mipHeight = image.Height;
+                for (int i = 0; i < imageMips; i++)
+                {
+                    int dataLength = mipWidth * mipHeight;
+                    if (compressed)
+                    {
+                        GL.CompressedTextureSubImage2D(texture, i, 0, 0, mipWidth, mipHeight, (PixelFormat)internalFormat, dataLength, (nint)Unsafe.AsPointer(ref image.AllData[dataOffset]));
+                    }
+                    else
+                    {
+                        GL.TextureSubImage2D(texture, i, 0, 0, mipWidth, mipHeight, pixelFormat, pixelType, (nint)Unsafe.AsPointer(ref image.AllData[dataOffset]));
+                    }
+                    dataOffset += mipWidth * mipHeight;
+                    mipWidth = Math.Max(1, mipWidth / 2);
+                    mipHeight = Math.Max(1, mipHeight / 2);
+                }
             }
 
             // Only generate mipmaps of the texture didn't have some levels
@@ -231,7 +322,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 // FIXME: Set the texture filtering properties for non-mipmap textures!
             }
 
-            return new Texture(texture, image.Width, image.Height, mipmapLevels, 1, format);
+            return new Texture(texture, image.Width, image.Height, depth, mipmapLevels, internalFormat);
         }
 
         public static unsafe Texture FromColor(Color4 color, bool srgb)
@@ -293,6 +384,11 @@ namespace DD2470_Clustered_Volume_Renderer
         {
             GL.TextureParameter(Handle, TextureParameterName.TextureMinFilter, (int)minFilter);
             GL.TextureParameter(Handle, TextureParameterName.TextureMagFilter, (int)magFilter);
+        }
+
+        public void SetAniso(float maxAniso)
+        {
+            GL.TextureParameter(Handle, TextureParameterName.TextureMaxAnisotropy, maxAniso);
         }
     }
 }

@@ -10,8 +10,11 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 using System.Text;
 using System.Threading.Tasks;
+using System.Transactions;
 
 namespace DD2470_Clustered_Volume_Renderer
 {
@@ -52,7 +55,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public Texture SkyboxRadiance;
         public Texture SkyboxIrradiance;
         public Material SkyboxMaterial;
-        public float SkyBoxExposure = 0.1f;
+        public float SkyBoxExposure = 1f;
 
         public Texture BrdfLUT;
 
@@ -72,6 +75,8 @@ namespace DD2470_Clustered_Volume_Renderer
         public Camera Camera;
         public Camera Camera2;
         public List<Entity> Entities;
+
+        List<EntityRenderData> RenderEntities;
 
         public Buffer LightBuffer;
         public List<PointLight> Lights = new List<PointLight>();
@@ -94,11 +99,10 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Shader skyboxShader = Shader.CreateVertexFragment("Skybox Shader", "./Shaders/skybox.vert", "./Shaders/skybox.frag");
             SkyboxMaterial = new Material(skyboxShader, null);
-            SkyboxMaterial.Albedo = Texture.LoadHDRICubeMapTexture("./Skybox/moonlit_golf/", true);
+            SkyboxMaterial.Albedo = DDSReader.LoadCubeMapTexture("./Skybox/moonlit_golf/moonlit_golf_cubemap.dds", true, false);
 
-            SkyboxIrradiance = Texture.LoadHDRICubeMapTexture("./Skybox/moonlit_golf/irradiance/", true);
-            SkyboxRadiance = Texture.LoadHDRICubeMapTexture("./Skybox/moonlit_golf/radiance/", true);
-            SkyboxMaterial.Albedo = SkyboxRadiance;
+            SkyboxIrradiance = DDSReader.LoadCubeMapTexture("./Skybox/moonlit_golf/moonlit_golf_irradiance_cubemap.dds", true, false);
+            SkyboxRadiance = DDSReader.LoadCubeMapTexture("./Skybox/moonlit_golf/moonlit_golf_radiance_cubemap.dds", false, false);
 
             Shader debugShader = Shader.CreateVertexFragment("Debug Shader", "./Shaders/debug.vert", "./Shaders/debug.frag");
             DebugMaterial = new Material(debugShader, null);
@@ -134,12 +138,17 @@ namespace DD2470_Clustered_Volume_Renderer
             Camera2 = new Camera(70, Size.X / (float)Size.Y, 50f, 1000f);
             Camera2.Transform.LocalPosition += (0, 100, 0);
 
+            // FIXME: Load the light model and display it as an unlit overlay.
+            Mesh2 mesh = Model.LoadModel("./light.obj", 1, null, null, null, null)[0].Mesh!;
+
             //Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
             Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             // Octahedron mapped point light shadows put into a atlas?
 
-            const int NLights = 0;
+            RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
+
+            const int NLights = 100;
             Random rand = new Random();
             Vector3 min = new Vector3(-300, 0, -100);
             Vector3 max = new Vector3(300, 200, 100);
@@ -153,12 +162,12 @@ namespace DD2470_Clustered_Volume_Renderer
                         rand.NextSingle() * 10000 + 1f));
             }
             // "sun"
-            /*Lights.Add(new PointLight(
+            Lights.Add(new PointLight(
                 new Vector3(0, 500, 0),
                 10000,
                 Color4.White,
                 1_000_00
-                ));*/
+                ));
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
 
@@ -224,7 +233,8 @@ namespace DD2470_Clustered_Volume_Renderer
                 const float CameraMaxY = 80f;
 
                 ImGui.SeparatorText("Camera 2");
-                ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera2.Transform.LocalPosition));
+                if (ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera2.Transform.UnsafePosition)))
+                    Camera2.Transform.IsDirty = true;
                 ImGui.DragFloat("Rotation X", ref Camera2.XAxisRotation, 0.01f);
                 ImGui.DragFloat("Rotation Y", ref Camera2.YAxisRotation, 0.01f);
                 Camera2.XAxisRotation = MathHelper.Clamp(Camera2.XAxisRotation, CameraMinY * Util.D2R, CameraMaxY * Util.D2R);
@@ -239,6 +249,30 @@ namespace DD2470_Clustered_Volume_Renderer
                 if (Camera2.FarPlane <= Camera2.NearPlane + 1)
                     Camera2.FarPlane = Camera.NearPlane + 1;
                 ImGui.DragFloat("Vertical FoV", ref Camera2.VerticalFov);
+
+                ImGui.Separator();
+
+                bool ctrl = KeyboardState.IsKeyDown(Keys.LeftControl) || KeyboardState.IsKeyDown(Keys.RightControl);
+
+                if (ImGui.Button("Recompile shaders") || (ctrl && KeyboardState.IsKeyPressed(Keys.R)))
+                {
+                    Shader.RecompileAllShaders();
+                }
+            }
+            ImGui.End();
+
+            if (ImGui.Begin("Timings"))
+            {
+                ImGui.TextUnformatted($"Total CPU time: {totalTime:0.000}ms");
+                ImGui.TextUnformatted($"Transform: {transformTime:0.000}ms ({transformTime/totalTime:0.00}%)");
+                ImGui.TextUnformatted($"Frustum culling: {cullingTime:0.000}ms ({cullingTime / totalTime:0.00}%)");
+                ImGui.TextUnformatted($"Sorting: {sortingTime:0.000}ms ({sortingTime / totalTime:0.00}%)");
+                ImGui.TextUnformatted($"Gen drawcalls: {drawcallGenTime:0.000}ms ({drawcallGenTime / totalTime:0.00}%)");
+
+                ImGui.Separator();
+
+                ImGui.TextUnformatted($"Visible entities: {Entities.Count - entitiesCulled}");
+                ImGui.TextUnformatted($"Draw calls: {drawcallsGenerated}");
             }
             ImGui.End();
 
@@ -311,16 +345,39 @@ namespace DD2470_Clustered_Volume_Renderer
             public Matrix4 NormalMatrix;
         }
 
-        struct EntityRenderData
+        struct EntityRenderData : IComparable<EntityRenderData>
         {
             public bool Culled;
             public Entity Entity;
             public Matrix4 ModelMatrix;
+
+            public int CompareTo(EntityRenderData other)
+            {
+                if (!this.Culled && !other.Culled)
+                    return Material.Compare(this.Entity.Mesh?.Material, other.Entity.Mesh?.Material);
+                else if (this.Culled && other.Culled)
+                    return 0;
+                else if (this.Culled)
+                    return 1;
+                else // if (other.Culled)
+                    return -1;
+            }
         }
+
+        // FIXME: Update these at a more reasoable rate.
+        double transformTime;
+        double cullingTime;
+        double sortingTime;
+        double drawcallGenTime;
+        double totalTime;
+
+        int entitiesCulled;
+        int drawcallsGenerated;
 
         protected unsafe override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
+            long start = Stopwatch.GetTimestamp();
 
             Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
             Matrix4 projectionMatrix = Camera.ProjectionMatrix;
@@ -330,26 +387,21 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Stopwatch watch = Stopwatch.StartNew();
 
-            // FIXME: Do not create a new list every frame...
-            // FIXME: Linq
-            List<EntityRenderData> RenderEntities = new List<EntityRenderData>(Entities.Select(e => new EntityRenderData() { Entity = e }));
-
             {
                 // Calculate transformation matrices
                 Span<EntityRenderData> RenderEntitiesSpan = CollectionsMarshal.AsSpan(RenderEntities);
                 for (int i = 0; i < RenderEntities.Count; i++)
                 {
                     RenderEntitiesSpan[i].Culled = RenderEntitiesSpan[i].Entity.Mesh == null;
-                    RenderEntitiesSpan[i].ModelMatrix = GetLocalToWorldTransform(RenderEntities[i].Entity);
+                    RenderEntitiesSpan[i].ModelMatrix = GetLocalToWorldTransform2(RenderEntities[i].Entity);
                 }
             }
 
-            double transformTime = watch.Elapsed.TotalMilliseconds;
+            transformTime = watch.Elapsed.TotalMilliseconds;
             watch.Restart();
 
-            RenderEntities.Sort((e1, e2) => Material.Compare(e1.Entity.Mesh?.Material, e2.Entity.Mesh?.Material));
-
             {
+                entitiesCulled = 0;
                 // Add a debug visualization for this?
                 Span<EntityRenderData> RenderEntitiesSpan = CollectionsMarshal.AsSpan(RenderEntities);
                 Frustum debugFrustum = Frustum.FromCamera(Camera2);
@@ -360,19 +412,29 @@ namespace DD2470_Clustered_Volume_Renderer
                         continue;
 
                     // FIXME: Something weird is going on...
-                    Box3 AABB = RecalculateAABB(renderData.Entity.Mesh.AABB, renderData.ModelMatrix);
+                    //Box3 AABB = RecalculateAABB(renderData.Entity.Mesh.AABB, renderData.ModelMatrix);
+                    Box3 AABB = RecalculateAABBSse(renderData.Entity.Mesh.AABB, renderData.ModelMatrix);
+                    // sse4.1 implementation is slower than the naïve scalar version...
+                    //if (Frustum.IntersectsAABBSse41(frustum, AABB) == false)
                     if (Frustum.IntersectsAABB(frustum, AABB) == false)
                     {
-                        //Console.WriteLine($"Intersects! {renderData.Entity.Name}");
                         renderData.Culled = true;
+                        entitiesCulled++;
                     }
 
+                    /*
+                    // FIXME: split the matrix and make the intersect function use both matrices.
+                    Matrix4 mvp = renderData.ModelMatrix * vp;
+                    if (Frustum.IntersectsAABBAvx(mvp, renderData.Entity.Mesh.AABB))
+                    {
+                        renderData.Culled = true;
+                        entitiesCulled++;
+                    }
+                    */
+
+                    // http://www.realtimerendering.com/resources/GraphicsGems/gems/TransBox.c
                     static Box3 RecalculateAABB(Box3 AABB, Matrix4 localToWorld)
                     {
-                        // http://www.realtimerendering.com/resources/GraphicsGems/gems/TransBox.c
-
-                        // FIXME:
-                        //var l2w = transform.LocalToWorld;
                         Matrix4 l2w = localToWorld;
                         Matrix3 rotation = new Matrix3(l2w);
                         Vector3 translation = l2w.Row3.Xyz;
@@ -381,15 +443,15 @@ namespace DD2470_Clustered_Volume_Renderer
                         Span<float> Amax = stackalloc float[3];
                         Span<float> Bmin = stackalloc float[3];
                         Span<float> Bmax = stackalloc float[3];
-
+                        
                         Amin[0] = AABB.Min.X; Amax[0] = AABB.Max.X;
                         Amin[1] = AABB.Min.Y; Amax[1] = AABB.Max.Y;
                         Amin[2] = AABB.Min.Z; Amax[2] = AABB.Max.Z;
-
+                        
                         Bmin[0] = Bmax[0] = translation.X;
                         Bmin[1] = Bmax[1] = translation.Y;
                         Bmin[2] = Bmax[2] = translation.Z;
-
+                        
                         for (int i = 0; i < 3; i++)
                         {
                             for (int j = 0; j < 3; j++)
@@ -403,13 +465,53 @@ namespace DD2470_Clustered_Volume_Renderer
 
                         return new Box3(Bmin[0], Bmin[1], Bmin[2], Bmax[0], Bmax[1], Bmax[2]);
                     }
+
+                    // FIXME: Create fallback?
+                    static Box3 RecalculateAABBSse(Box3 AABB, Matrix4 localToWorld)
+                    {
+                        // http://www.realtimerendering.com/resources/GraphicsGems/gems/TransBox.c
+
+                        Span<Vector128<float>> Rows = new Span<Vector128<float>>(Unsafe.AsPointer(ref Unsafe.As<Matrix4, Vector128<float>>(ref localToWorld)), 4);
+
+                        Vector128<float> Amin = AABB.Min.ToVector128();
+                        Vector128<float> Amax = AABB.Max.ToVector128();
+                        Vector128<float> Bmin = Rows[3];
+                        Vector128<float> Bmax = Rows[3];
+
+                        for (int i = 0; i < 3; i++)
+                        {
+                            var a = Sse.Multiply(Rows[i], Amin);
+                            var b = Sse.Multiply(Rows[i], Amax);
+
+                            Bmin = Sse.Add(Bmin, Sse.Min(a, b));
+                            Bmax = Sse.Add(Bmax, Sse.Max(a, b));
+                        }
+
+                        return new Box3(Bmin.AsVector3(), Bmax.AsVector3());
+                    }
                 }
             }
 
-            // Remove all culled entities from the list
-            RenderEntities.RemoveAll(e => e.Culled);
+            cullingTime = watch.Elapsed.TotalMilliseconds;
+            watch.Restart();
 
-            double cullingTime = watch.Elapsed.TotalMilliseconds;
+            // How to avoid this sort? Have a separate list that stores the order?
+            // Make the instancing ignore the culled instances?
+            /*RenderEntities.Sort(static (e1, e2) => {
+                    if (!e1.Culled && !e2.Culled)
+                        return Material.Compare(e1.Entity.Mesh?.Material, e2.Entity.Mesh?.Material);
+                    else if (e1.Culled && e2.Culled)
+                        return 0;
+                    else if (e1.Culled)
+                        return 1;
+                    else // if (e2.Culled)
+                        return -1;
+                });*/
+
+            // Remove all culled entities from the list
+            //RenderEntities.RemoveAll(e => e.Culled);
+
+            sortingTime = watch.Elapsed.TotalMilliseconds;
             watch.Restart();
 
             // FIXME: We are allocating this every frame...
@@ -427,10 +529,19 @@ namespace DD2470_Clustered_Volume_Renderer
                 if (baseRenderData.Entity.Mesh == null)
                     continue;
 
+                if (baseRenderData.Culled)
+                    continue;
+
+                int offset = 1;
                 int instanceCount = 1;
-                while (i + instanceCount < RenderEntities.Count && CanInstance(baseRenderData.Entity, RenderEntities[i + instanceCount].Entity))
+                while (i + offset < RenderEntities.Count && CanInstance(baseRenderData.Entity, RenderEntities[i + offset].Entity))
                 {
-                    instanceCount++;
+                    if (RenderEntities[i + offset].Culled == false)
+                    {
+                        instanceCount++;
+                    }
+
+                    offset++;
                 }
 
                 // FIXME: Sort the instanced items by distance from AABB center.
@@ -438,24 +549,29 @@ namespace DD2470_Clustered_Volume_Renderer
                 Span<EntityRenderData> instanceEntities = CollectionsMarshal.AsSpan(RenderEntities).Slice(i, instanceCount);
 
                 // Sort by distance to the near plane
-                instanceEntities.Sort((e1, e2) => 
+                /*instanceEntities.Sort((e1, e2) => 
                             MathF.Sign(
                                 System.Numerics.Plane.Dot(frustum.Near, e1.ModelMatrix.Row3.AsNumerics()) - 
                                 System.Numerics.Plane.Dot(frustum.Near, e2.ModelMatrix.Row3.AsNumerics())
-                                ));
+                                ));*/
 
-                var test = instanceEntities.ToArray().Select(e => System.Numerics.Plane.Dot(frustum.Near, e.ModelMatrix.Row3.AsNumerics())).ToArray();
+                //var test = instanceEntities.ToArray().Select(e => System.Numerics.Plane.Dot(frustum.Near, e.ModelMatrix.Row3.AsNumerics())).ToArray();
 
                 InstanceData[] instanceData = new InstanceData[instanceCount];
-                for (int instance = 0; instance < instanceData.Length; instance++)
+                int instance = 0;
+                for (int index = 0; index < offset; index++)
                 {
-                    Matrix4 modelMatrix = RenderEntities[i + instance].ModelMatrix;
+                    if (RenderEntities[i + index].Culled)
+                        continue;
+
+                    Matrix4 modelMatrix = RenderEntities[i + index].ModelMatrix;
                     Matrix4 mvp = modelMatrix * vp;
                     Matrix3 normalMatrix = Matrix3.Transpose(new Matrix3(modelMatrix).Inverted());
 
                     instanceData[instance].ModelMatrix = modelMatrix;
                     instanceData[instance].MVP = mvp;
                     instanceData[instance].NormalMatrix = new Matrix4(normalMatrix);
+                    instance++;
                 }
 
                 Buffer.UpdateSubData<InstanceData>(instanceDataBuffer, instanceData, i);
@@ -486,7 +602,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 //Console.WriteLine($"Upload buffer data: {watch2.Elapsed.TotalMilliseconds}ms");
                 watch2.Stop();
 
-                i += instanceCount - 1;
+                i += offset - 1;
 
                 static bool CanInstance(Entity @base, Entity entity)
                 {
@@ -508,13 +624,13 @@ namespace DD2470_Clustered_Volume_Renderer
                     }
                 }
             }
+            drawcallsGenerated = drawcalls.Count;
 
-            double drawcallGenTime = watch.Elapsed.TotalMilliseconds;
+            drawcallGenTime = watch.Elapsed.TotalMilliseconds;
             watch.Stop();
 
-            //Console.WriteLine($"Transform time: {cullingTime}ms");
-            //Console.WriteLine($"Culling time: {cullingTime}ms");
-            //Console.WriteLine($"Gen drawcall time: {drawcallGenTime}ms");
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+            //Console.WriteLine($"{cullingTime:0.000}");
 
             //Console.WriteLine(thingsToRender);
 
@@ -786,6 +902,9 @@ namespace DD2470_Clustered_Volume_Renderer
 
             SwapBuffers();
 
+            long end = Stopwatch.GetTimestamp();
+            totalTime = Stopwatch.GetElapsedTime(start, end).TotalMilliseconds;
+
             // FIXME: Move to entity?
             static Matrix4 GetLocalToWorldTransform(Entity entity)
             {
@@ -796,6 +915,19 @@ namespace DD2470_Clustered_Volume_Renderer
                     entity = entity.Parent!;
                 } while (entity != null);
                 return matrix;
+            }
+
+            static Matrix4 GetLocalToWorldTransform2(Entity entity)
+            {
+                // Turns out that 
+                System.Numerics.Matrix4x4 matrix = System.Numerics.Matrix4x4.Identity;
+                do
+                {
+                    var localToParent = entity.Transform.LocalToParent;
+                    matrix = matrix * Unsafe.As<Matrix4, System.Numerics.Matrix4x4>(ref localToParent);
+                    entity = entity.Parent!;
+                } while (entity != null);
+                return Unsafe.As<System.Numerics.Matrix4x4, Matrix4>(ref matrix);
             }
         }
 
