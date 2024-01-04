@@ -13,10 +13,32 @@ layout(std430, binding=0) writeonly buffer Clusters
     Cluster ssbo_clusters[];
 };
 
-layout(local_size_x = 1, local_size_y = 1) in;
+layout(std140, row_major, binding=1) uniform ProjectionData
+{
+    mat4 inverseProjection;
+    uvec2 screenDimentions;
+    float zNear;
+    float zFar;
+};
+
+vec3 screenToView(vec4 screen)
+{
+    screen.xy = screen.xy / screenDimentions;
+    screen.xy = screen.xy * 2 - 1;
+    vec4 view = screen * inverseProjection;
+    return view.xyz / view.w;
+}
+
+vec3 intersectZPlane(vec3 direction, float zPlane)
+{
+    // Is it direction.z or -direction.z?
+    return (zPlane / direction.z) * direction;
+}
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main()
 {
-    uint tileSizePx = 16; // FIXME: Calculate or get the real tile size.
+    uvec2 tileSizePx = screenDimentions / gl_NumWorkGroups.xy;
     uint tileIndex = gl_WorkGroupID.x +
                      gl_WorkGroupID.y * gl_NumWorkGroups.x +
                      gl_WorkGroupID.z * (gl_NumWorkGroups.x * gl_NumWorkGroups.y);
@@ -26,8 +48,22 @@ void main()
     // Bottom left
     vec4 minPointScreen = vec4(gl_WorkGroupID.xy * tileSizePx, -1.0, 1.0);
 
-    // Convert the screen space points into
+    vec3 maxPointView = screenToView(maxPointScreen);
+    vec3 minPointView = screenToView(minPointScreen);
 
-    ssbo_clusters[tileIndex].Min = minPointScreen;
-    ssbo_clusters[tileIndex].Max = maxPointScreen;
+    //Near and far values of the cluster in view space
+    float tileNear  = -zNear * pow(zFar/ zNear, gl_WorkGroupID.z / float(gl_NumWorkGroups.z));
+    float tileFar   = -zNear * pow(zFar/ zNear, (gl_WorkGroupID.z + 1) / float(gl_NumWorkGroups.z));
+
+    vec3 minPointNear = intersectZPlane(minPointView, tileNear);
+    vec3 minPointFar  = intersectZPlane(minPointView, tileFar);
+    vec3 maxPointNear = intersectZPlane(maxPointView, tileNear);
+    vec3 maxPointFar  = intersectZPlane(maxPointView, tileFar);
+
+    // Convert the screen space points into
+    vec3 minPointAABB = min(min(minPointNear, minPointFar), min(maxPointNear, maxPointFar));
+    vec3 maxPointAABB = max(max(minPointNear, minPointFar), max(maxPointNear, maxPointFar));
+
+    ssbo_clusters[tileIndex].Min = vec4(minPointAABB, 1.0);
+    ssbo_clusters[tileIndex].Max = vec4(maxPointAABB, 1.0);
 }

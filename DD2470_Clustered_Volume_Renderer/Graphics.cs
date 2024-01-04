@@ -370,5 +370,18 @@ namespace DD2470_Clustered_Volume_Renderer
                 BoundUniformBuffers[index] = buffer;
             }
         }
+
+        public const int MinAtomicCounterBuffers = 1;
+
+        public static Buffer?[] BoundAtomicCounterBuffers = new Buffer[MinAtomicCounterBuffers];
+
+        public static void BindAtomicCounterBuffer(int index, Buffer? buffer)
+        {
+            if (BoundAtomicCounterBuffers[index] != buffer)
+            {
+                GL.BindBufferBase(BufferRangeTarget.AtomicCounterBuffer, index, buffer?.Handle ?? 0);
+                BoundAtomicCounterBuffers[index] = buffer;
+            }
+        }
     }
 }

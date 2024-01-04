@@ -34,6 +34,14 @@ namespace DD2470_Clustered_Volume_Renderer
         }
     }
 
+    internal struct ProjectionData
+    {
+        public Matrix4 InverseProjection;
+        public Vector2i ScreenSize;
+        public float NearZ;
+        public float FarZ;
+    }
+
     internal class Window : GameWindow
     {
         public Window(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings) : base(gameWindowSettings, nativeWindowSettings)
@@ -60,6 +68,8 @@ namespace DD2470_Clustered_Volume_Renderer
         public Texture BrdfLUT;
 
         public Material DebugMaterial;
+        public Material AABBDebugMaterial;
+        public Material LightDebugMaterial;
 
         public Material DefaultMaterial;
         public Material DefaultMaterialAlphaCutout;
@@ -69,11 +79,21 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material HiZDepthCopy;
         public Material HiZPass;
 
+        // If these are changed the shaders also need to be modified!
+        public static readonly Vector3i ClusterCounts = (16, 9, 24);
+        public static readonly int TotalClusters = ClusterCounts.X * ClusterCounts.Y * ClusterCounts.Z;
         public Buffer ClusterData;
+        public Buffer ProjectionDataBuffer;
+        public Buffer LightIndexBuffer;
+        public Buffer LightGridBuffer;
+        public Buffer AtomicIndexCountBuffer;
+        public Buffer DebugBuffer;
         public Material ClusterGenPass;
+        public Material LightAssignmentPass;
 
         public Camera Camera;
         public Camera Camera2;
+
         public List<Entity> Entities;
 
         List<EntityRenderData> RenderEntities;
@@ -82,6 +102,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public List<PointLight> Lights = new List<PointLight>();
 
         public Mesh2 CubeMesh;
+        public Mesh2 LightMesh;
 
         protected override void OnLoad()
         {
@@ -106,6 +127,10 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Shader debugShader = Shader.CreateVertexFragment("Debug Shader", "./Shaders/debug.vert", "./Shaders/debug.frag");
             DebugMaterial = new Material(debugShader, null);
+            Shader aabbDebugShader = Shader.CreateVertexFragment("AABB Debug Shader", "./Shaders/debugAABB.vert", "./Shaders/debugAABB.frag");
+            AABBDebugMaterial = new Material(aabbDebugShader, null);
+            Shader lightDebugShader = Shader.CreateVertexFragment("Light Debug Shader", "./Shaders/debugLight.vert", "./Shaders/debugLight.frag");
+            LightDebugMaterial = new Material(lightDebugShader, null);
 
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             Shader defaultShaderPrepass = Shader.CreateVertexFragment("Default Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
@@ -126,9 +151,23 @@ namespace DD2470_Clustered_Volume_Renderer
             Shader hiZDepthCopy = Shader.CreateVertexFragment("HiZ copy depth Shader", "./Shaders/fullscreen.vert", "./Shaders/depth_to_texture.frag");
             HiZDepthCopy = new Material(hiZDepthCopy, null);
 
-            ClusterData = Buffer.CreateBuffer("Cluster AABBs", 16 * 9 * 24, 8 * sizeof(float), BufferStorageFlags.None);
+            ClusterData = Buffer.CreateBuffer("Cluster AABBs", TotalClusters, 8 * sizeof(float), BufferStorageFlags.None);
             Shader clusterGen = Shader.CreateCompute("Cluster generation", "./Shaders/Clustered/build_clusters.comp");
             ClusterGenPass = new Material(clusterGen, null);
+            Shader lightAssignment = Shader.CreateCompute("Light assignment", "./Shaders/Clustered/assign_lights.comp");
+            LightAssignmentPass = new Material(lightAssignment, null);
+
+            // FIXME: Figure out if this should be a mapped buffer or double buffered.
+            unsafe
+            {
+                ProjectionDataBuffer = Buffer.CreateBuffer("Projection Buffer", 1, sizeof(ProjectionData), BufferStorageFlags.DynamicStorageBit);
+            }
+
+            // Max 50 lights per cluster.
+            LightIndexBuffer = Buffer.CreateBuffer("Light Index Buffer", TotalClusters * 50, sizeof(uint), BufferStorageFlags.None);
+            LightGridBuffer = Buffer.CreateBuffer("Light Grid Buffer", TotalClusters, 2 * sizeof(uint), BufferStorageFlags.None);
+            AtomicIndexCountBuffer = Buffer.CreateBuffer("Atomic Light Index", 1, sizeof(uint), BufferStorageFlags.None);
+            DebugBuffer = Buffer.CreateBuffer("Debug buffer", 1, TotalClusters * 26 * 100, BufferStorageFlags.None);
 
             DefaultAlbedo = Texture.FromColor(Color4.White, true);
             DefaultNormal = Texture.FromColor(new Color4(0.5f, 0.5f, 1f, 1f), false);
@@ -139,7 +178,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Camera2.Transform.LocalPosition += (0, 100, 0);
 
             // FIXME: Load the light model and display it as an unlit overlay.
-            Mesh2 mesh = Model.LoadModel("./light.obj", 1, null, null, null, null)[0].Mesh!;
+            LightMesh = Model.LoadModel("./light.obj", 1, null, null, null, null)[0].Mesh!;
 
             //Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
@@ -148,16 +187,16 @@ namespace DD2470_Clustered_Volume_Renderer
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
 
-            const int NLights = 100;
+            const int NLights = 25;
             Random rand = new Random();
-            Vector3 min = new Vector3(-300, 0, -100);
-            Vector3 max = new Vector3(300, 200, 100);
+            Vector3 min = new Vector3(-300, -100, -200);
+            Vector3 max = new Vector3(300, 50, 100);
             for (int i = 0; i < NLights; i++)
             {
                 Lights.Add(
                     new PointLight(
                         rand.NextVector3(min, max),
-                        rand.NextSingle() * 10 + 0.1f,
+                        rand.NextSingle() * 100 + 0.1f,
                         rand.NextColor4Hue(1, 1),
                         rand.NextSingle() * 10000 + 1f));
             }
@@ -382,6 +421,13 @@ namespace DD2470_Clustered_Volume_Renderer
             Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
             Matrix4 projectionMatrix = Camera.ProjectionMatrix;
             Matrix4 vp = viewMatrix * projectionMatrix;
+
+            ProjectionData projectionData;
+            projectionData.InverseProjection = Matrix4.Invert(Camera.ProjectionMatrix);
+            projectionData.ScreenSize = FramebufferSize;
+            projectionData.NearZ = Camera.NearPlane;
+            projectionData.FarZ = Camera.FarPlane;
+            Buffer.UpdateSubData<ProjectionData>(ProjectionDataBuffer, stackalloc ProjectionData[1] { projectionData }, 0);
 
             Frustum frustum = Frustum.FromCamera(Camera);
 
@@ -743,10 +789,35 @@ namespace DD2470_Clustered_Volume_Renderer
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Clustering");
             {
-                Graphics.UseShader(ClusterGenPass.Shader);
-                Graphics.BindShaderStorageBlock(0, ClusterData);
+                {
+                    Graphics.UseShader(ClusterGenPass.Shader);
+                    Graphics.BindShaderStorageBlock(0, ClusterData);
+                    Graphics.BindUniformBuffer(1, ProjectionDataBuffer);
 
-                GL.DispatchCompute(16, 9, 24);
+                    // FIXME: Some way to parameterize the number of clusters...
+                    GL.DispatchCompute(ClusterCounts.X, ClusterCounts.Y, ClusterCounts.Z);
+                }
+
+                {
+                    Graphics.UseShader(LightAssignmentPass.Shader);
+
+                    // FIXME: this is unecessary?
+                    Graphics.BindShaderStorageBlock(0, ClusterData);
+
+                    Graphics.BindShaderStorageBlock(1, LightBuffer);
+                    Graphics.BindShaderStorageBlock(2, LightIndexBuffer);
+                    Graphics.BindShaderStorageBlock(3, LightGridBuffer);
+                    Graphics.BindShaderStorageBlock(4, DebugBuffer);
+
+                    Graphics.BindAtomicCounterBuffer(0, AtomicIndexCountBuffer);
+
+                    // FIXME: Easy way to switch between camera and camera2 for this...
+                    GL.UniformMatrix4(0, true, ref viewMatrix);
+
+                    // FIXME: Some way to parameterize the number of clusters...
+                    GL.DispatchCompute(1, 1, ClusterCounts.Z / 4);
+                }
+                
             }
             GL.PopDebugGroup();
 
@@ -843,7 +914,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 Graphics.UseShader(CubeMesh.Material.Shader);
 
-                Matrix4 view = Camera2.Transform.ParentToLocal;
+                //Matrix4 view = Camera2.Transform.ParentToLocal;
                 Matrix4 proj = Camera2.ProjectionMatrix;
                 Matrix4 invVP = (/*view */ proj).Inverted();
 
@@ -871,6 +942,52 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
                 Graphics.SetCullMode(CullMode.CullBackFacing);
+
+                
+                Graphics.UseShader(AABBDebugMaterial.Shader);
+
+                Graphics.BindVertexAttributeBuffer(TheVAO, 2, ClusterData, 0, 2 * sizeof(Vector4));
+                GL.VertexArrayBindingDivisor(TheVAO.Handle, 2, 1);
+                Graphics.LinkAttributeBufferBinding(TheVAO, 4, 2);
+                Graphics.LinkAttributeBufferBinding(TheVAO, 5, 2);
+                Graphics.SetVertexAttribute(TheVAO, 4, true, 3, VertexAttribType.Float, false, 0);
+                Graphics.SetVertexAttribute(TheVAO, 5, true, 3, VertexAttribType.Float, false, sizeof(Vector4));
+
+                Matrix4 ident = Matrix4.Identity;
+
+                GL.UniformMatrix4(0, true, ref mvp);
+                GL.UniformMatrix4(1, true, ref model);
+                GL.UniformMatrix3(2, true, ref normal);
+                GL.UniformMatrix4(3, true, ref ident);
+
+                Graphics.BindShaderStorageBlock(3, LightGridBuffer);
+
+                Graphics.SetDepthWrite(true);
+
+                GL.DrawElementsInstanced(PrimitiveType.Triangles, CubeMesh.IndexCount, elementType, CubeMesh.IndexByteOffset, TotalClusters);
+                
+
+                /*
+                Graphics.UseShader(LightDebugMaterial.Shader);
+
+                Graphics.BindVertexAttributeBuffer(TheVAO, 0, LightMesh.PositionBuffer, 0, sizeof(Vector3h));
+                Graphics.BindVertexAttributeBuffer(TheVAO, 1, LightMesh.AttributeBuffer, 0, sizeof(VertexAttributes));
+                Graphics.SetElementBuffer(TheVAO, LightMesh.IndexBuffer);
+
+                Graphics.BindVertexAttributeBuffer(TheVAO, 2, LightBuffer, 0, 2 * sizeof(Vector4));
+                GL.VertexArrayBindingDivisor(TheVAO.Handle, 2, 1);
+                Graphics.LinkAttributeBufferBinding(TheVAO, 4, 2);
+                Graphics.LinkAttributeBufferBinding(TheVAO, 5, 2);
+                Graphics.SetVertexAttribute(TheVAO, 4, true, 4, VertexAttribType.Float, false, 0);
+                Graphics.SetVertexAttribute(TheVAO, 5, true, 3, VertexAttribType.Float, false, sizeof(Vector4));
+
+                GL.UniformMatrix4(0, true, ref mvp);
+                GL.UniformMatrix4(1, true, ref model);
+                GL.UniformMatrix3(2, true, ref normal);
+                GL.UniformMatrix4(3, true, ref ident);
+
+                GL.DrawElementsInstanced(PrimitiveType.Triangles, LightMesh.IndexCount, elementType, LightMesh.IndexByteOffset, Lights.Count);
+                */
             }
             GL.PopDebugGroup();
 

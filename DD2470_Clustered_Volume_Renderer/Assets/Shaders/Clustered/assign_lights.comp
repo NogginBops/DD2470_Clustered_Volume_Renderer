@@ -1,0 +1,144 @@
+#version 460 core
+
+// FIXME: Make this something else
+layout(local_size_x = 16, local_size_y = 9, local_size_z = 4) in;
+
+// The clusters are AABBs in view space
+// so that they are aligned with the view direction.
+struct Cluster 
+{
+    vec4 Min;
+    vec4 Max;
+};
+
+layout(std430, binding=0) readonly buffer Clusters
+{
+    Cluster ssbo_clusters[];
+};
+
+// FIXME: Define this in a single include type file...
+struct PointLight
+{
+	vec4 PositionAndInvSqrRadius;
+	vec4 Color;
+};
+
+layout(std430, row_major, binding=1) readonly buffer PointLights
+{
+	PointLight ssbo_lights[];
+};
+
+layout(std430, binding=2) writeonly buffer LightIndex
+{
+    uint ssbo_lightIndexList[];
+};
+
+struct LightGridCell
+{
+    uint Offset;
+    uint Count;
+};
+
+layout(std430, binding=3) writeonly buffer LightGrid
+{
+    LightGridCell ssbo_lightGrid[];
+};
+
+layout(std430, binding=4) buffer Debug
+{
+    float ssbo_gridLightDistance[];
+};
+
+layout(binding = 0) uniform atomic_uint atomic_globalIndexCount;
+
+layout(location = 0) uniform mat4 viewMatrix;
+
+shared PointLight shared_Lights[gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z];
+
+float squaredDistanceAABB(vec3 position, uint clusterIndex)
+{
+    float sqrDist = 0.0;
+    Cluster cluster = ssbo_clusters[clusterIndex];
+
+    vec3 minDiff = mix(vec3(0), cluster.Min.xyz - position, lessThan(position, cluster.Min.xyz));
+    minDiff = minDiff * minDiff;
+
+    vec3 maxDiff = mix(vec3(0), position - cluster.Max.xyz, greaterThan(position, cluster.Max.xyz));
+    maxDiff = maxDiff * maxDiff;
+    
+    vec3 diff = minDiff + maxDiff;
+
+    return diff.x + diff.y + diff.z;
+}
+
+bool testSphereAABBB(uint light, uint clusterIndex)
+{
+    float invSqrRadius = shared_Lights[light].PositionAndInvSqrRadius.w;
+    vec3 center = vec3(vec4(shared_Lights[light].PositionAndInvSqrRadius.xyz, 1.0) * viewMatrix); 
+    float invSqrDist = 1 / squaredDistanceAABB(center, clusterIndex);
+
+    ssbo_gridLightDistance[clusterIndex * 26 + light] = invSqrDist;
+
+    return invSqrDist >= invSqrRadius;
+}
+
+void main()
+{
+    if (gl_GlobalInvocationID == 0)
+    {
+        atomicCounterExchange(atomic_globalIndexCount, 0);
+    }
+    barrier();
+
+    uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
+    uint lightCount  = ssbo_lights.length();
+    // ceil(lightCount / threadCount)
+    uint numBatches = (lightCount + threadCount - 1) / threadCount;
+
+    uint clusterIndex = gl_LocalInvocationIndex + gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z * gl_WorkGroupID.z;
+
+    uint visibleLightCount = 0;
+    uint visibleLightIndices[50];
+
+    for(uint batch = 0; batch < numBatches; batch++)
+    {
+        uint lightIndex = batch * threadCount + gl_LocalInvocationIndex;
+
+        // This means that the last light must always be "null"
+        lightIndex = min(lightIndex, lightCount);
+
+        shared_Lights[gl_LocalInvocationIndex] = ssbo_lights[lightIndex];
+
+        // FIXME: Which of barrier and memoryBarrierShared is needed?
+        barrier();
+        // Make sure that all shared_Lights have been written.
+        //memoryBarrierShared();
+
+        for (uint light = 0; light < threadCount; light++)
+        {
+            if (batch * threadCount + light >= lightCount)
+                break;
+                
+            if (testSphereAABBB(light, clusterIndex) && visibleLightCount < visibleLightIndices.length())
+            {
+                visibleLightIndices[visibleLightCount] = batch * threadCount + light;
+                visibleLightCount++;
+            }
+        }
+    }
+
+    barrier();
+
+    uint offset = atomicCounterAdd(atomic_globalIndexCount, visibleLightCount);
+
+    if (offset == 0)
+    {
+        for (uint i = 0; i < visibleLightCount; i++)
+        {
+            ssbo_lightIndexList[offset + i] = visibleLightIndices[i];
+        }
+    }
+    
+    ssbo_lightGrid[clusterIndex].Offset = offset;
+    ssbo_lightGrid[clusterIndex].Count = visibleLightCount;
+}

@@ -176,6 +176,15 @@ void main()
 	texNormal = normalize(texNormal);
 	normal = normalize(tangentToWorld * texNormal);
 
+	// FIXME: Get the cluster size!
+	// FIXME: Figure out the z index..
+	uvec2 tile = uvec2(gl_FragCoord.xy / vec2(1600/16, 900/9));
+	if ((tile.x + (tile.y%2))%2==0)
+	{
+		//f_color = vec4(0.0, 0.5, gl_FragCoord.z, 1.0);
+		//return;
+	}
+
 	//f_color = vec4(texNormala, 1.0);
 	//return;
 
