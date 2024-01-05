@@ -74,6 +74,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material DefaultMaterial;
         public Material DefaultMaterialAlphaCutout;
 
+        public Material DefaultClusteredMaterial;
+        public Material DefaultClusteredMaterialAlphaCutout;
+
         public Material Tonemap;
 
         public Material HiZDepthCopy;
@@ -82,6 +85,8 @@ namespace DD2470_Clustered_Volume_Renderer
         // If these are changed the shaders also need to be modified!
         public static readonly Vector3i ClusterCounts = (16, 9, 24);
         public static readonly int TotalClusters = ClusterCounts.X * ClusterCounts.Y * ClusterCounts.Z;
+        public static readonly int MaxLightsPerCluster = 256;
+        public static readonly int WorstCaseNumberOfClustersFilled = (int)(TotalClusters * 0.5);
         public Buffer ClusterData;
         public Buffer ProjectionDataBuffer;
         public Buffer LightIndexBuffer;
@@ -103,6 +108,12 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public Mesh2 CubeMesh;
         public Mesh2 LightMesh;
+
+        public bool ShowCamera2Frustum;
+        public bool ShowClusterDebug;
+        public bool ShowLights;
+
+        public float NearClusterDepth = 0.5f;
 
         protected override void OnLoad()
         {
@@ -135,9 +146,14 @@ namespace DD2470_Clustered_Volume_Renderer
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             Shader defaultShaderPrepass = Shader.CreateVertexFragment("Default Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
             DefaultMaterial = new Material(defaultShader, defaultShaderPrepass);
-            Shader defaultShaderAlphaCutout = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout.frag");
             Shader defaultShaderAlphaCutoutPrepass = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout_prepass.frag");
-            DefaultMaterialAlphaCutout = new Material(defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
+            DefaultMaterialAlphaCutout = new Material(defaultShader, defaultShaderAlphaCutoutPrepass);
+
+            Shader defaultClusteredShader = Shader.CreateVertexFragment("Default Clustered Shader", "./Shaders/default.vert", "./Shaders/defaultClustered.frag");
+            Shader defaultClusteredShaderPrepass = Shader.CreateVertexFragment("Default Clustered Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
+            DefaultClusteredMaterial = new Material(defaultClusteredShader, defaultClusteredShaderPrepass);
+            Shader defaultClusteredShaderAlphaCutoutPrepass = Shader.CreateVertexFragment("Default Clustered Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout_prepass.frag");
+            DefaultClusteredMaterialAlphaCutout = new Material(defaultClusteredShader, defaultClusteredShaderAlphaCutoutPrepass);
 
             CubeMesh = Model.CreateCube((1, 1, 1), DebugMaterial);
 
@@ -164,7 +180,7 @@ namespace DD2470_Clustered_Volume_Renderer
             }
 
             // Max 50 lights per cluster.
-            LightIndexBuffer = Buffer.CreateBuffer("Light Index Buffer", TotalClusters * 50, sizeof(uint), BufferStorageFlags.None);
+            LightIndexBuffer = Buffer.CreateBuffer("Light Index Buffer", MaxLightsPerCluster * WorstCaseNumberOfClustersFilled, sizeof(uint), BufferStorageFlags.None);
             LightGridBuffer = Buffer.CreateBuffer("Light Grid Buffer", TotalClusters, 2 * sizeof(uint), BufferStorageFlags.None);
             AtomicIndexCountBuffer = Buffer.CreateBuffer("Atomic Light Index", 1, sizeof(uint), BufferStorageFlags.None);
             DebugBuffer = Buffer.CreateBuffer("Debug buffer", 1, TotalClusters * 26 * 100, BufferStorageFlags.None);
@@ -182,31 +198,32 @@ namespace DD2470_Clustered_Volume_Renderer
 
             //Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
-            Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
+            Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShader, defaultShaderAlphaCutoutPrepass);
+            Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultClusteredShader, defaultClusteredShaderPrepass, defaultClusteredShader, defaultClusteredShaderAlphaCutoutPrepass);
             // Octahedron mapped point light shadows put into a atlas?
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
 
-            const int NLights = 25;
+            const int NLights = 500;
             Random rand = new Random();
-            Vector3 min = new Vector3(-300, -100, -200);
-            Vector3 max = new Vector3(300, 50, 100);
+            Vector3 min = new Vector3(-300, 0, -250);
+            Vector3 max = new Vector3(300, 40, 250);
             for (int i = 0; i < NLights; i++)
             {
                 Lights.Add(
                     new PointLight(
                         rand.NextVector3(min, max),
-                        rand.NextSingle() * 100 + 0.1f,
+                        rand.NextSingle() * 100 + 10f,
                         rand.NextColor4Hue(1, 1),
-                        rand.NextSingle() * 10000 + 1f));
+                        rand.NextSingle() * 100_00 + 1f));
             }
             // "sun"
-            Lights.Add(new PointLight(
-                new Vector3(0, 500, 0),
-                10000,
+            /*Lights.Add(new PointLight(
+                new Vector3(0, 300, 0),
+                1000,
                 Color4.White,
-                1_000_00
-                ));
+                1_000_000
+                ));*/
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
 
@@ -266,8 +283,23 @@ namespace DD2470_Clustered_Volume_Renderer
             // This starts a imgui frame.
             ImGuiController.Update(this, deltaTime);
 
-            if (ImGui.Begin("Camera"))
+            if (ImGui.Begin("Settings"))
             {
+                ImGui.PushItemWidth(ImGui.GetWindowWidth() * 0.5f);
+
+                ImGui.SeparatorText("Debug Visualizations");
+
+                ImGui.Checkbox("Show second camera frustum", ref ShowCamera2Frustum);
+                ImGui.Checkbox("Show cluster debug", ref ShowClusterDebug);
+                ImGui.Checkbox("Show lights", ref ShowLights);
+
+                ImGui.SeparatorText("Cluster settings");
+
+                if (ImGui.DragFloat("Near cluster depth", ref NearClusterDepth, 1, 0.001f, Camera.FarPlane - Camera.NearPlane, null, ImGuiSliderFlags.Logarithmic))
+                {
+                    NearClusterDepth = float.Clamp(NearClusterDepth, 0.001f, Camera.FarPlane - Camera.NearPlane);
+                }
+
                 const float CameraMinY = -80f;
                 const float CameraMaxY = 80f;
 
@@ -356,7 +388,7 @@ namespace DD2470_Clustered_Volume_Renderer
             public int BaseVertex;
             public int IndexCount;
             public int IndexByteOffset;
-            public int IndexSize;
+            public DrawElementsType IndexType;
 
             public Buffer InstanceData;
             public int InstanceOffset;
@@ -637,7 +669,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     BaseVertex = baseRenderData.Entity.Mesh.BaseVertex,
                     IndexCount = baseRenderData.Entity.Mesh.IndexCount,
                     IndexByteOffset = baseRenderData.Entity.Mesh.IndexByteOffset,
-                    IndexSize = baseRenderData.Entity.Mesh.IndexSize,
+                    IndexType = baseRenderData.Entity.Mesh.IndexType,
 
                     InstanceData = instanceDataBuffer,
                     InstanceOffset = i,
@@ -659,7 +691,7 @@ namespace DD2470_Clustered_Volume_Renderer
                         @base.Mesh.IndexBuffer == entity.Mesh.IndexBuffer &&
                         @base.Mesh.BaseVertex == entity.Mesh.BaseVertex &&
                         @base.Mesh.IndexCount == entity.Mesh.IndexCount &&
-                        @base.Mesh.IndexSize == entity.Mesh.IndexSize &&
+                        @base.Mesh.IndexType == entity.Mesh.IndexType &&
                         @base.Mesh.Material.Shader == entity.Mesh.Material.Shader)
                     {
                         return true;
@@ -703,7 +735,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     Drawcall drawcall = drawcalls[i];
                     Graphics.UseShader(drawcall.PrepassShader ?? drawcall.Shader);
 
-                    if (drawcall.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
+                    if (drawcall.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader ||
+                        drawcall.PrepassShader == DefaultClusteredMaterialAlphaCutout.PrepassShader)
                     {
                         Graphics.BindTexture(0, drawcall.AlbedoTexture);
 
@@ -713,22 +746,12 @@ namespace DD2470_Clustered_Volume_Renderer
 
                     Graphics.BindShaderStorageBlockRange(1, drawcall.InstanceData, drawcall.InstanceOffset * sizeof(InstanceData), drawcall.InstanceCount * sizeof(InstanceData));
 
-
                     // FIXME: maybe use the buffer element size here instead of sizeof()?
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
                     Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
 
-                    var elementType = drawcall.IndexSize switch
-                    {
-                        2 => DrawElementsType.UnsignedShort,
-                        4 => DrawElementsType.UnsignedInt,
-                        _ => throw new NotSupportedException(),
-                    };
-
-                    GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
-
-                    //GL.DrawElementsBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.BaseVertex);
+                    GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, drawcall.IndexType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
                 }
             }
             GL.PopDebugGroup();
@@ -815,7 +838,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     GL.UniformMatrix4(0, true, ref viewMatrix);
 
                     // FIXME: Some way to parameterize the number of clusters...
-                    GL.DispatchCompute(1, 1, ClusterCounts.Z / 4);
+                    GL.DispatchCompute(ClusterCounts.X / 16, ClusterCounts.Y / 9, ClusterCounts.Z / 4);
                 }
                 
             }
@@ -850,30 +873,25 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindShaderStorageBlock(0, LightBuffer);
                     Graphics.BindShaderStorageBlockRange(1, drawcall.InstanceData, drawcall.InstanceOffset * sizeof(InstanceData), drawcall.InstanceCount * sizeof(InstanceData));
 
+                    // FIXME: Make this into a UBO that we bind instead...
                     // FIXME: We assume the camera transform has no parent.
                     GL.Uniform3(10, Camera.Transform.LocalPosition);
-
+                    GL.Uniform1(11, Camera.NearPlane);
+                    GL.Uniform1(12, Camera.FarPlane);
+                    // See: https://www.aortiz.me/2018/12/21/CG.html#light-culling-methods
+                    GL.Uniform1(13, ClusterCounts.Z / float.Log2(Camera.FarPlane / Camera.NearPlane));
+                    GL.Uniform1(14, -ClusterCounts.Z * float.Log2(Camera.NearPlane) / float.Log2(Camera.FarPlane / Camera.NearPlane));
                     GL.Uniform1(15, SkyBoxExposure);
 
-                    if (drawcall.Shader == DefaultMaterialAlphaCutout.Shader)
-                    {
-                        // Alpha cutout
-                        GL.Uniform1(20, 0.5f);
-                    }
+                    GL.Uniform3(20, (uint)ClusterCounts.X, (uint)ClusterCounts.Y, (uint)ClusterCounts.Z);
+                    //GL.Uniform3(20, ClusterCounts);
 
                     // FIXME: maybe use the buffer element size here instead of sizeof()?
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, drawcall.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
                     Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
 
-                    var elementType = drawcall.IndexSize switch
-                    {
-                        2 => DrawElementsType.UnsignedShort,
-                        4 => DrawElementsType.UnsignedInt,
-                        _ => throw new NotSupportedException(),
-                    };
-
-                    GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, elementType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
+                    GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, drawcall.IndexType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
                 }
 
                 // Draw skybox
@@ -891,103 +909,100 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);
 
-                    var elementType = CubeMesh.IndexBuffer.Size switch
-                    {
-                        2 => DrawElementsType.UnsignedShort,
-                        4 => DrawElementsType.UnsignedInt,
-                        _ => throw new NotSupportedException(),
-                    };
-
-                    GL.DrawElements(PrimitiveType.Triangles, CubeMesh.IndexBuffer.Count, elementType, 0);
+                    GL.DrawElements(PrimitiveType.Triangles, CubeMesh.IndexBuffer.Count, CubeMesh.IndexType, 0);
                 }
             }
             GL.PopDebugGroup();
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Debug pass");
             {
-                Graphics.SetDepthWrite(false);
-                Graphics.SetColorWrite(ColorChannels.All);
-                Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
-                Graphics.SetCullMode(CullMode.CullNone);
-
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
-
-                Graphics.UseShader(CubeMesh.Material.Shader);
-
                 //Matrix4 view = Camera2.Transform.ParentToLocal;
                 Matrix4 proj = Camera2.ProjectionMatrix;
-                Matrix4 invVP = (/*view */ proj).Inverted();
+                Matrix4 invP = proj.Inverted();
 
                 Matrix4 model = Camera2.Transform.LocalToParent;
                 Matrix4 mvp = model * vp;
                 Matrix3 normal = Matrix3.Transpose(new Matrix3(model).Inverted());
 
-                GL.UniformMatrix4(0, true, ref mvp);
-                GL.UniformMatrix4(1, true, ref model);
-                GL.UniformMatrix3(2, true, ref normal);
-                GL.UniformMatrix4(3, true, ref invVP);
-
-                Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
-                Graphics.BindVertexAttributeBuffer(TheVAO, 1, CubeMesh.AttributeBuffer, 0, sizeof(VertexAttributes));
-                Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);
-
-                var elementType = CubeMesh.IndexSize switch
-                {
-                    2 => DrawElementsType.UnsignedShort,
-                    4 => DrawElementsType.UnsignedInt,
-                    _ => throw new NotSupportedException(),
-                };
-
-                GL.DrawElements(PrimitiveType.Triangles, CubeMesh.IndexCount, elementType, CubeMesh.IndexByteOffset);
-
-                GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
-                Graphics.SetCullMode(CullMode.CullBackFacing);
-
-                
-                Graphics.UseShader(AABBDebugMaterial.Shader);
-
-                Graphics.BindVertexAttributeBuffer(TheVAO, 2, ClusterData, 0, 2 * sizeof(Vector4));
-                GL.VertexArrayBindingDivisor(TheVAO.Handle, 2, 1);
-                Graphics.LinkAttributeBufferBinding(TheVAO, 4, 2);
-                Graphics.LinkAttributeBufferBinding(TheVAO, 5, 2);
-                Graphics.SetVertexAttribute(TheVAO, 4, true, 3, VertexAttribType.Float, false, 0);
-                Graphics.SetVertexAttribute(TheVAO, 5, true, 3, VertexAttribType.Float, false, sizeof(Vector4));
-
                 Matrix4 ident = Matrix4.Identity;
 
-                GL.UniformMatrix4(0, true, ref mvp);
-                GL.UniformMatrix4(1, true, ref model);
-                GL.UniformMatrix3(2, true, ref normal);
-                GL.UniformMatrix4(3, true, ref ident);
+                if (ShowCamera2Frustum)
+                {
+                    Graphics.SetDepthWrite(false);
+                    Graphics.SetColorWrite(ColorChannels.All);
+                    Graphics.SetDepthFunc(DepthFunc.PassIfLessOrEqual);
+                    Graphics.SetCullMode(CullMode.CullNone);
 
-                Graphics.BindShaderStorageBlock(3, LightGridBuffer);
+                    GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
 
+                    Graphics.UseShader(CubeMesh.Material.Shader);
+
+                    GL.UniformMatrix4(0, true, ref mvp);
+                    GL.UniformMatrix4(1, true, ref model);
+                    GL.UniformMatrix3(2, true, ref normal);
+                    GL.UniformMatrix4(3, true, ref invP);
+
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 1, CubeMesh.AttributeBuffer, 0, sizeof(VertexAttributes));
+                    Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);
+
+                    GL.DrawElements(PrimitiveType.Triangles, CubeMesh.IndexCount, CubeMesh.IndexType, CubeMesh.IndexByteOffset);
+
+                    GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
+                }
+
+                Graphics.SetCullMode(CullMode.CullBackFacing);
                 Graphics.SetDepthWrite(true);
 
-                GL.DrawElementsInstanced(PrimitiveType.Triangles, CubeMesh.IndexCount, elementType, CubeMesh.IndexByteOffset, TotalClusters);
-                
+                if (ShowClusterDebug)
+                {
+                    Graphics.UseShader(AABBDebugMaterial.Shader);
 
-                /*
-                Graphics.UseShader(LightDebugMaterial.Shader);
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 2, ClusterData, 0, 2 * sizeof(Vector4));
+                    GL.VertexArrayBindingDivisor(TheVAO.Handle, 2, 1);
+                    Graphics.LinkAttributeBufferBinding(TheVAO, 4, 2);
+                    Graphics.LinkAttributeBufferBinding(TheVAO, 5, 2);
+                    Graphics.SetVertexAttribute(TheVAO, 4, true, 3, VertexAttribType.Float, false, 0);
+                    Graphics.SetVertexAttribute(TheVAO, 5, true, 3, VertexAttribType.Float, false, sizeof(Vector4));
 
-                Graphics.BindVertexAttributeBuffer(TheVAO, 0, LightMesh.PositionBuffer, 0, sizeof(Vector3h));
-                Graphics.BindVertexAttributeBuffer(TheVAO, 1, LightMesh.AttributeBuffer, 0, sizeof(VertexAttributes));
-                Graphics.SetElementBuffer(TheVAO, LightMesh.IndexBuffer);
+                    GL.UniformMatrix4(0, true, ref projectionMatrix);
+                    GL.UniformMatrix4(1, true, ref ident);
+                    GL.UniformMatrix3(2, true, ref normal);
+                    GL.UniformMatrix4(3, true, ref ident);
 
-                Graphics.BindVertexAttributeBuffer(TheVAO, 2, LightBuffer, 0, 2 * sizeof(Vector4));
-                GL.VertexArrayBindingDivisor(TheVAO.Handle, 2, 1);
-                Graphics.LinkAttributeBufferBinding(TheVAO, 4, 2);
-                Graphics.LinkAttributeBufferBinding(TheVAO, 5, 2);
-                Graphics.SetVertexAttribute(TheVAO, 4, true, 4, VertexAttribType.Float, false, 0);
-                Graphics.SetVertexAttribute(TheVAO, 5, true, 3, VertexAttribType.Float, false, sizeof(Vector4));
+                    Graphics.BindShaderStorageBlock(3, LightGridBuffer);
 
-                GL.UniformMatrix4(0, true, ref mvp);
-                GL.UniformMatrix4(1, true, ref model);
-                GL.UniformMatrix3(2, true, ref normal);
-                GL.UniformMatrix4(3, true, ref ident);
+                    GL.DrawElementsInstanced(PrimitiveType.Triangles, CubeMesh.IndexCount, CubeMesh.IndexType, CubeMesh.IndexByteOffset, TotalClusters);
 
-                GL.DrawElementsInstanced(PrimitiveType.Triangles, LightMesh.IndexCount, elementType, LightMesh.IndexByteOffset, Lights.Count);
-                */
+                    GL.VertexArrayBindingDivisor(TheVAO.Handle, 2, 0);
+                }
+
+                if (ShowLights)
+                {
+                    Graphics.SetCullMode(CullMode.CullNone);
+
+                    Graphics.UseShader(LightDebugMaterial.Shader);
+
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 0, LightMesh.PositionBuffer, 0, sizeof(Vector3h));
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 1, LightMesh.AttributeBuffer, 0, sizeof(VertexAttributes));
+                    Graphics.SetElementBuffer(TheVAO, LightMesh.IndexBuffer);
+
+                    Graphics.BindVertexAttributeBuffer(TheVAO, 2, LightBuffer, 0, 2 * sizeof(Vector4));
+                    GL.VertexArrayBindingDivisor(TheVAO.Handle, 2, 1);
+                    Graphics.LinkAttributeBufferBinding(TheVAO, 4, 2);
+                    Graphics.LinkAttributeBufferBinding(TheVAO, 5, 2);
+                    Graphics.SetVertexAttribute(TheVAO, 4, true, 4, VertexAttribType.Float, false, 0);
+                    Graphics.SetVertexAttribute(TheVAO, 5, true, 3, VertexAttribType.Float, false, sizeof(Vector4));
+
+                    GL.UniformMatrix4(0, true, ref vp);
+                    GL.UniformMatrix4(1, true, ref model);
+                    GL.UniformMatrix3(2, true, ref normal);
+                    GL.UniformMatrix4(3, true, ref ident);
+
+                    GL.DrawElementsInstanced(PrimitiveType.Triangles, LightMesh.IndexCount, LightMesh.IndexType, LightMesh.IndexByteOffset, Lights.Count);
+
+                    Graphics.SetCullMode(CullMode.CullBackFacing);
+                }
             }
             GL.PopDebugGroup();
 

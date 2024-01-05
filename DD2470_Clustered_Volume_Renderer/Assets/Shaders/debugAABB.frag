@@ -37,7 +37,7 @@ const vec3 COLORS[8] = vec3[8](
 void main()
 {
 	uint count = ssbo_lightGrid[instanceID].Count;
-	//if (count == 1)
-	//	discard;
+	if (count == 0)
+		discard;
 	f_color = vec4(COLORS[count % COLORS.length()], 1.0);
 }

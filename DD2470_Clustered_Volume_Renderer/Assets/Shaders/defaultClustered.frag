@@ -16,10 +16,32 @@ layout(binding=6) uniform samplerCube tex_Radiance;
 layout(binding=7) uniform sampler2D tex_brdfLUT;
 
 layout(location=10) uniform vec3 u_CameraPosition;
+layout(location=11) uniform float u_zNear;
+layout(location=12) uniform float u_zFar;
+layout(location=13) uniform float u_zScale;
+layout(location=14) uniform float u_zBias;
 
 layout(location=15) uniform float u_Exposure;
 
+layout(location=20) uniform uvec3 u_ClusterCount;
+
 const float PI = 3.14159265359;
+
+const vec3 COLORS[] = vec3[](
+	vec3(0, 0, 0),
+	vec3(1, 0, 0),
+	vec3(0.5, 0, 1),
+	vec3(0, 0.5, 1),
+	vec3(0, 1, 0),
+	vec3(1, 0.5, 0),
+	vec3(1, 0, 0.5),
+	vec3(0, 0, 1),
+	vec3(1, 1, 0),
+	vec3(0.5, 1, 0),
+	vec3(0, 1, 0.5),
+	vec3(1, 0, 1),
+	vec3(0, 1, 1),
+	vec3(1, 1, 1));
 
 // FIXME: Define this in a single include type file...
 struct PointLight
@@ -30,7 +52,23 @@ struct PointLight
 
 layout(std430, row_major, binding=0) readonly buffer PointLights
 {
-	PointLight u_lights[];
+	PointLight ssbo_lights[];
+};
+
+layout(std430, binding=2) readonly buffer LightIndex
+{
+    uint ssbo_lightIndexList[];
+};
+
+struct LightGridCell
+{
+    uint Offset;
+    uint Count;
+};
+
+layout(std430, binding=3) readonly buffer LightGrid
+{
+    LightGridCell ssbo_lightGrid[];
 };
 
 struct Surface
@@ -94,45 +132,30 @@ float HorizonOcclusion(vec3 R, vec3 N)
     return clamp(horiz * horiz, 0, 1);
 }
 
-float smoothDistanceAtt(float squaredDistance, float invSqrAttRadius)
+float SmoothDistanceAttenuation(float squareDistance, float invSquareRadius)
 {
-	float factor = squaredDistance * invSqrAttRadius;
-	float smoothFactor = clamp(1.0 - factor * factor, 0, 1);
+	float factor = squareDistance * invSquareRadius;
+	float smoothFactor = clamp(1.0 - factor * factor, 0.0, 1.0);
 	return smoothFactor * smoothFactor;
 }
 
-float getDistanceAtt(vec3 unormalizedLightVector, float invSqrAttRadius)
-{
-	float sqrDist = dot(unormalizedLightVector, unormalizedLightVector);
-	float attenuation = 1.0 / (max(sqrDist, 0.01 * 0.01));
-	attenuation *= smoothDistanceAtt(sqrDist, invSqrAttRadius);
-
-	return attenuation;
-}
-
-
 // https://seblagarde.files.wordpress.com/2015/07/course_notes_moving_frostbite_to_pbr_v32.pdf
-float CalcPointLightAttenuation5(float distance, float invRadius)
+float CalcPointLightAttenuation6(float squareDistance, float invSquareRadius)
 {
-    float factor = clamp(1 - pow(distance * invRadius, 4), 0, 1);
-    return (factor * factor) / (distance * distance);
+	float attenuation = 1.0 / max(squareDistance, 0.1*0.1);
+	attenuation *= SmoothDistanceAttenuation(squareDistance, invSquareRadius);
+	return attenuation;
 }
 
 vec3 ShadePointLight(Surface surface, PointLight light)
 {
 	vec3 lightDirection =  light.PositionAndInvSqrRadius.xyz - v_position;
-	//float distance = length(lightDirection);
-	float distanceSqr = dot(lightDirection, lightDirection);
-	//float attenuation = getDistanceAtt(lightDirection, light.PositionAndInvSqrRadius.w);
+	float distanceSquare = dot(lightDirection, lightDirection);
+	float attenuation = CalcPointLightAttenuation6(distanceSquare, light.PositionAndInvSqrRadius.w);
 	lightDirection =  normalize(lightDirection);
+
 	vec3 halfwayDirection = normalize(lightDirection + surface.ViewDirection);
 
-	float attenuation = 1.0 / distanceSqr;
-
-	//return (light.Color.rgb * surface.Albedo) / distanceSqr;
-
-	//float attenuation = CalcPointLightAttenuation5(length, light.PositionAndInvSqrRadius.w);
-	
 	vec3 radiance = light.Color.rgb * attenuation;
 
 	float NDF = DistributionGGX(surface.Normal, halfwayDirection, surface.Roughness);
@@ -151,12 +174,12 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 
 	float NdotL = max(dot(surface.Normal, lightDirection), 0.0);
 	return (kD * surface.Albedo / PI + specular) * radiance * NdotL;
+}
 
-	//return halfwayDirection * attenuation;
-	//return abs(lightDirection);
-	//return vec3(1 - distance / 100, 1 - distance / 100, 1 - distance / 100) * light.Color.rgb * surface.Albedo;
-	//return vec3(attenuation, attenuation, attenuation);
-	//return surface.Albedo * radiance;
+float linearDepth(float depthSample){
+    float depthRange = 2.0 * depthSample - 1.0;
+    float linear = 2.0 * u_zNear * u_zFar / (u_zFar + u_zNear - depthRange * (u_zFar - u_zNear));
+    return linear;
 }
 
 void main()
@@ -176,16 +199,7 @@ void main()
 	texNormal = normalize(texNormal);
 	normal = normalize(tangentToWorld * texNormal);
 
-	// FIXME: Get the cluster size!
-	// FIXME: Figure out the z index..
-	uvec2 tile = uvec2(gl_FragCoord.xy / vec2(1600/16, 900/9));
-	if ((tile.x + (tile.y%2))%2==0)
-	{
-		//f_color = vec4(0.0, 0.5, gl_FragCoord.z, 1.0);
-		//return;
-	}
-
-	//f_color = vec4(texNormala, 1.0);
+	//f_color = vec4(texNormal, 1.0);
 	//return;
 
 	Surface surface;
@@ -204,10 +218,21 @@ void main()
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
 	surface.ReflectionDirection = reflect(-surface.ViewDirection, surface.Normal);
 	
+	uint zTile = uint(max(log2(linearDepth(gl_FragCoord.z)) * u_zScale + u_zBias, 0.0));
+	uvec3 tile = uvec3(gl_FragCoord.xy / vec2(1600/16, 900/9), zTile);
+	uint tileIndex = tile.x + u_ClusterCount.x * tile.y + (u_ClusterCount.x * u_ClusterCount.y) * tile.z;
+	
+	uint lightCount = ssbo_lightGrid[tileIndex].Count;
+	uint lightOffset = ssbo_lightGrid[tileIndex].Offset;
+
+	//f_color = vec4(COLORS[lightCount % COLORS.length()], 1.0);
+	//return;
+
 	vec3 color = vec3(0, 0, 0);
-	for (int i = 0; i < u_lights.length(); i++)
+	for (int i = 0; i < lightCount; i++)
 	{
-		color += ShadePointLight(surface, u_lights[i]);
+		uint lightIndex = ssbo_lightIndexList[lightOffset + i];
+		color += ShadePointLight(surface, ssbo_lights[lightIndex]);
 	}
 
 	{
@@ -223,7 +248,7 @@ void main()
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		color += diffuse * kD + specular;
+		//color += diffuse * kD + specular;
 	}
 	
 	f_color = vec4(color, 1.0);

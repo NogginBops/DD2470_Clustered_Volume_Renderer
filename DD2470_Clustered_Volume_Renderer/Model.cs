@@ -7,7 +7,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Assimp;
-using OpenTK.Graphics.ES11;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 using StbImageSharp;
@@ -118,7 +117,7 @@ namespace DD2470_Clustered_Volume_Renderer
     {
         public int BaseVertex;
         public int IndexCount;
-        public int IndexSize;
+        public DrawElementsType IndexType;
         public int IndexByteOffset;
 
         public Material Material;
@@ -130,11 +129,11 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public Box3 AABB;
 
-        public Mesh2(int baseVertex, int indexCount, int indexSize, int indexByteOffset, Material material)
+        public Mesh2(int baseVertex, int indexCount, DrawElementsType indexType, int indexByteOffset, Material material)
         {
             BaseVertex = baseVertex;
             IndexCount = indexCount;
-            IndexSize = indexSize;
+            IndexType = indexType;
             IndexByteOffset = indexByteOffset;
             Material = material;
         }
@@ -296,14 +295,14 @@ namespace DD2470_Clustered_Volume_Renderer
                 meshAttributes.AddRange(attribs);
 
                 int index_count;
-                int index_size;
+                DrawElementsType index_size;
                 int index_offset;
                 if (mesh.FaceCount * 3 > ushort.MaxValue)
                 {
                     uint[] indices = mesh.GetUnsignedIndices();
 
                     index_count = indices.Length;
-                    index_size = 4;
+                    index_size = DrawElementsType.UnsignedInt;
                     index_offset = meshElements.Count;
                     meshElements.AddRange(MemoryMarshal.Cast<uint, byte>(indices));
                 }
@@ -312,7 +311,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     short[] indices = mesh.GetShortIndices();
 
                     index_count = indices.Length;
-                    index_size = 2;
+                    index_size = DrawElementsType.UnsignedShort;
                     index_offset = meshElements.Count;
                     meshElements.AddRange(MemoryMarshal.Cast<short, byte>(indices));
                 }
@@ -502,7 +501,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Buffer attribBuffer = Buffer.CreateBuffer("Cube_vertexattribs", attribs, BufferStorageFlags.None);
             Buffer indexBuffer = Buffer.CreateBuffer("Cube_index", indices, BufferStorageFlags.None);
 
-            Mesh2 m = new Mesh2(0, indices.Length, 2, 0, material);
+            Mesh2 m = new Mesh2(0, indices.Length, DrawElementsType.UnsignedShort, 0, material);
             m.PositionBuffer = positionBuffer;
             m.AttributeBuffer = attribBuffer;
             m.IndexBuffer = indexBuffer;

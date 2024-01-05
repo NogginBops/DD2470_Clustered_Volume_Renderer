@@ -98,7 +98,7 @@ void main()
     uint clusterIndex = gl_LocalInvocationIndex + gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z * gl_WorkGroupID.z;
 
     uint visibleLightCount = 0;
-    uint visibleLightIndices[50];
+    uint visibleLightIndices[256];
 
     for(uint batch = 0; batch < numBatches; batch++)
     {
@@ -131,12 +131,9 @@ void main()
 
     uint offset = atomicCounterAdd(atomic_globalIndexCount, visibleLightCount);
 
-    if (offset == 0)
+    for (uint i = 0; i < visibleLightCount; i++)
     {
-        for (uint i = 0; i < visibleLightCount; i++)
-        {
-            ssbo_lightIndexList[offset + i] = visibleLightIndices[i];
-        }
+        ssbo_lightIndexList[offset + i] = visibleLightIndices[i];
     }
     
     ssbo_lightGrid[clusterIndex].Offset = offset;

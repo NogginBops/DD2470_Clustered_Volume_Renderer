@@ -18,12 +18,12 @@ layout(location = 0) uniform mat4 u_mvp;
 layout(location = 1) uniform mat4 u_model;
 layout(location = 2) uniform mat3 u_normalMatrix;
 
-layout(location = 3) uniform mat4 u_inv_vp;
+layout(location = 3) uniform mat4 u_inv_p;
 
 void main()
 {
 	vec3 AABBPos = mix(in_AABBMin, in_AABBMax, in_position * 0.5 + 0.5);
-	vec4 p = vec4(AABBPos, 1.0) * u_inv_vp;
+	vec4 p = vec4(AABBPos, 1.0) * u_inv_p;
 	p /= p.w;
 
 	gl_Position = p * u_mvp;
