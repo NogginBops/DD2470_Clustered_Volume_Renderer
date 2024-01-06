@@ -380,6 +380,16 @@ namespace DD2470_Clustered_Volume_Renderer
             return new Texture(texture, width, height, 1, mipmapLevels, format);
         }
 
+        public static Texture CreateEmpty3D(string name, int width, int height, int depth, SizedInternalFormat format)
+        {
+            GL.CreateTextures(TextureTarget.Texture3D, 1, out int texture);
+            GL.ObjectLabel(ObjectLabelIdentifier.Texture, texture, -1, name);
+
+            GL.TextureStorage3D(texture, 1, format, width, height, depth);
+
+            return new Texture(texture, width, height, depth, 1, format);
+        }
+
         public void SetFilter(TextureMinFilter minFilter, TextureMagFilter magFilter)
         {
             GL.TextureParameter(Handle, TextureParameterName.TextureMinFilter, (int)minFilter);

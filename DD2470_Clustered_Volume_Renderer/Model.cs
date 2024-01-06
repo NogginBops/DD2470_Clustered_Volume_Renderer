@@ -141,7 +141,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
     internal static class Model
     {
-        public static List<Entity> LoadModel(string modelPath, float scale, Shader shader, Shader prepass, Shader alphaCutout, Shader prepassCutout)
+        public static List<Entity> LoadModel(string modelPath, float scale, Shader shader, Shader clusteredShader, Shader prepass, Shader prepassCutout)
         {
             AssimpContext context = new AssimpContext();
             string directory = Path.GetDirectoryName(modelPath)!;
@@ -161,11 +161,11 @@ namespace DD2470_Clustered_Volume_Renderer
                 Material m;
                 if (material.HasColorTransparent || material.Name == "Grass_Diffuse")
                 {
-                    m = new Material(shader, prepassCutout);
+                    m = new Material(shader, prepassCutout, clusteredShader, prepassCutout);
                 }
                 else
                 {
-                    m = new Material(shader, prepass);
+                    m = new Material(shader, prepass, clusteredShader, prepass);
                 }
 
                 if (material.HasTextureDiffuse)

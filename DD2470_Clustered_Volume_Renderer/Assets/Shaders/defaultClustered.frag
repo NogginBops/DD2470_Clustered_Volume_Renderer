@@ -47,7 +47,7 @@ const vec3 COLORS[] = vec3[](
 struct PointLight
 {
 	vec4 PositionAndInvSqrRadius;
-	vec4 Color;
+	vec4 ColorAndSqrRadius;
 };
 
 layout(std430, row_major, binding=0) readonly buffer PointLights
@@ -156,7 +156,7 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 
 	vec3 halfwayDirection = normalize(lightDirection + surface.ViewDirection);
 
-	vec3 radiance = light.Color.rgb * attenuation;
+	vec3 radiance = light.ColorAndSqrRadius.rgb * attenuation;
 
 	float NDF = DistributionGGX(surface.Normal, halfwayDirection, surface.Roughness);
 	float G   = GeometrySmith(surface.Normal, surface.ViewDirection, lightDirection, surface.Roughness);
@@ -248,7 +248,7 @@ void main()
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		//color += diffuse * kD + specular;
+		color += diffuse * kD + specular;
 	}
 	
 	f_color = vec4(color, 1.0);

@@ -25,7 +25,7 @@ const float PI = 3.14159265359;
 struct PointLight
 {
 	vec4 PositionAndInvSqrRadius;
-	vec4 Color;
+	vec4 ColorAndSqrRadius;
 };
 
 layout(std430, row_major, binding=0) readonly buffer PointLights
@@ -94,46 +94,35 @@ float HorizonOcclusion(vec3 R, vec3 N)
     return clamp(horiz * horiz, 0, 1);
 }
 
-float smoothDistanceAtt(float squaredDistance, float invSqrAttRadius)
+float SmoothDistanceAttenuation(float squareDistance, float invSquareRadius)
 {
-	float factor = squaredDistance * invSqrAttRadius;
-	float smoothFactor = clamp(1.0 - factor * factor, 0, 1);
+	float factor = squareDistance * invSquareRadius;
+	float smoothFactor = clamp(1.0 - factor * factor, 0.0, 1.0);
 	return smoothFactor * smoothFactor;
 }
 
-float getDistanceAtt(vec3 unormalizedLightVector, float invSqrAttRadius)
-{
-	float sqrDist = dot(unormalizedLightVector, unormalizedLightVector);
-	float attenuation = 1.0 / (max(sqrDist, 0.01 * 0.01));
-	attenuation *= smoothDistanceAtt(sqrDist, invSqrAttRadius);
-
-	return attenuation;
-}
-
-
 // https://seblagarde.files.wordpress.com/2015/07/course_notes_moving_frostbite_to_pbr_v32.pdf
-float CalcPointLightAttenuation5(float distance, float invRadius)
+float CalcPointLightAttenuation6(float squareDistance, float invSquareRadius)
 {
-    float factor = clamp(1 - pow(distance * invRadius, 4), 0, 1);
-    return (factor * factor) / (distance * distance);
+	float attenuation = 1.0 / max(squareDistance, 0.1*0.1);
+	attenuation *= SmoothDistanceAttenuation(squareDistance, invSquareRadius);
+	return attenuation;
 }
 
 vec3 ShadePointLight(Surface surface, PointLight light)
 {
 	vec3 lightDirection =  light.PositionAndInvSqrRadius.xyz - v_position;
-	//float distance = length(lightDirection);
-	float distanceSqr = dot(lightDirection, lightDirection);
-	//float attenuation = getDistanceAtt(lightDirection, light.PositionAndInvSqrRadius.w);
+	float distanceSquare = dot(lightDirection, lightDirection);
+
+	if (distanceSquare > light.ColorAndSqrRadius.w)
+		return vec3(0);
+
+	float attenuation = CalcPointLightAttenuation6(distanceSquare, light.PositionAndInvSqrRadius.w);
 	lightDirection =  normalize(lightDirection);
+
 	vec3 halfwayDirection = normalize(lightDirection + surface.ViewDirection);
 
-	float attenuation = 1.0 / distanceSqr;
-
-	//return (light.Color.rgb * surface.Albedo) / distanceSqr;
-
-	//float attenuation = CalcPointLightAttenuation5(length, light.PositionAndInvSqrRadius.w);
-	
-	vec3 radiance = light.Color.rgb * attenuation;
+	vec3 radiance = light.ColorAndSqrRadius.rgb * attenuation;
 
 	float NDF = DistributionGGX(surface.Normal, halfwayDirection, surface.Roughness);
 	float G   = GeometrySmith(surface.Normal, surface.ViewDirection, lightDirection, surface.Roughness);
@@ -151,12 +140,6 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 
 	float NdotL = max(dot(surface.Normal, lightDirection), 0.0);
 	return (kD * surface.Albedo / PI + specular) * radiance * NdotL;
-
-	//return halfwayDirection * attenuation;
-	//return abs(lightDirection);
-	//return vec3(1 - distance / 100, 1 - distance / 100, 1 - distance / 100) * light.Color.rgb * surface.Albedo;
-	//return vec3(attenuation, attenuation, attenuation);
-	//return surface.Albedo * radiance;
 }
 
 void main()

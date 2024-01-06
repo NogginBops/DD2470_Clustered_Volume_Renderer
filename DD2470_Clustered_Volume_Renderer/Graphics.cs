@@ -289,6 +289,29 @@ namespace DD2470_Clustered_Volume_Renderer
             }
         }
 
+        public const int MinImageUnits = 8;
+
+        public struct ImageBinding
+        {
+            public Texture? Texture;
+            public TextureAccess Access;
+        }
+
+        // FIXME: Need to store stuff like layer bound etc...
+        public static ImageBinding[] BoundImages = new ImageBinding[MinImageUnits];
+
+        public static void BindImage(int unit, Texture? texture, TextureAccess access)
+        {
+            ref ImageBinding binding = ref BoundImages[unit];
+            if (binding.Texture != texture &&
+                binding.Access != access)
+            {
+                GL.BindImageTexture(unit, texture?.Handle ?? 0, 0, false, 0, access, texture?.Format ?? 0);
+                binding.Texture = texture;
+                binding.Access = access;
+            }
+        }
+
         // GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS is at least 8
         public const int MinShaderStorageBufferBindings = 8;
 

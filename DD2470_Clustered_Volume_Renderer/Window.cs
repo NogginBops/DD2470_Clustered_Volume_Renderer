@@ -23,14 +23,14 @@ namespace DD2470_Clustered_Volume_Renderer
         public Vector3 Position;
         public float InverseSquareRadius;
         public Vector3 Color;
-        public float Padding0;
+        public float SquareRadius;
 
         public PointLight(Vector3 position, float radius, Color4 color, float intensity)
         {
             Position = position;
             InverseSquareRadius = 1 / (radius * radius);
             Color = new Vector3(color.R, color.G, color.B) * intensity;
-            Padding0 = 0;
+            SquareRadius = radius * radius;
         }
     }
 
@@ -42,6 +42,18 @@ namespace DD2470_Clustered_Volume_Renderer
         public float FarZ;
     }
 
+    internal struct ViewData
+    {
+        public Matrix4 InverseViewProjectionMatrix;
+        public Vector4i ScreenSize;
+    }
+
+    enum RenderPath
+    {
+        ForwardPath,
+        ClusteredForwardPath,
+    }
+
     internal class Window : GameWindow
     {
         public Window(GameWindowSettings gameWindowSettings, NativeWindowSettings nativeWindowSettings) : base(gameWindowSettings, nativeWindowSettings)
@@ -49,6 +61,8 @@ namespace DD2470_Clustered_Volume_Renderer
         }
 
         public ImGuiController ImGuiController;
+
+        public static RenderPath CurrentRenderpath = RenderPath.ClusteredForwardPath;
 
         public VAO TheVAO;
 
@@ -74,9 +88,6 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material DefaultMaterial;
         public Material DefaultMaterialAlphaCutout;
 
-        public Material DefaultClusteredMaterial;
-        public Material DefaultClusteredMaterialAlphaCutout;
-
         public Material Tonemap;
 
         public Material HiZDepthCopy;
@@ -95,6 +106,16 @@ namespace DD2470_Clustered_Volume_Renderer
         public Buffer DebugBuffer;
         public Material ClusterGenPass;
         public Material LightAssignmentPass;
+
+        // 32 x 18 x 72
+        public static readonly Vector3i VolumeFroxels = ClusterCounts * (2, 2, 3);
+        public Texture VolumeScatterExtinctionTexture;
+        public Texture VolumeEmissionPhaseTexture;
+        public Material VolumeDensityTransferPass;
+        public Buffer VolumeViewDataBuffer;
+
+        public float FogBottomHeight;
+        public float FogTopHeight;
 
         public Camera Camera;
         public Camera Camera2;
@@ -130,48 +151,45 @@ namespace DD2470_Clustered_Volume_Renderer
             BrdfLUT = Texture.LoadTexture("./ibl_brdf_lut.png", false, true);
 
             Shader skyboxShader = Shader.CreateVertexFragment("Skybox Shader", "./Shaders/skybox.vert", "./Shaders/skybox.frag");
-            SkyboxMaterial = new Material(skyboxShader, null);
+            SkyboxMaterial = new Material(skyboxShader, null, skyboxShader, null);
             SkyboxMaterial.Albedo = DDSReader.LoadCubeMapTexture("./Skybox/moonlit_golf/moonlit_golf_cubemap.dds", true, false);
 
             SkyboxIrradiance = DDSReader.LoadCubeMapTexture("./Skybox/moonlit_golf/moonlit_golf_irradiance_cubemap.dds", true, false);
             SkyboxRadiance = DDSReader.LoadCubeMapTexture("./Skybox/moonlit_golf/moonlit_golf_radiance_cubemap.dds", false, false);
 
             Shader debugShader = Shader.CreateVertexFragment("Debug Shader", "./Shaders/debug.vert", "./Shaders/debug.frag");
-            DebugMaterial = new Material(debugShader, null);
+            DebugMaterial = new Material(debugShader, null, debugShader, null);
             Shader aabbDebugShader = Shader.CreateVertexFragment("AABB Debug Shader", "./Shaders/debugAABB.vert", "./Shaders/debugAABB.frag");
-            AABBDebugMaterial = new Material(aabbDebugShader, null);
+            AABBDebugMaterial = new Material(aabbDebugShader, null, aabbDebugShader, null);
             Shader lightDebugShader = Shader.CreateVertexFragment("Light Debug Shader", "./Shaders/debugLight.vert", "./Shaders/debugLight.frag");
-            LightDebugMaterial = new Material(lightDebugShader, null);
+            LightDebugMaterial = new Material(lightDebugShader, null, lightDebugShader, null);
 
             Shader defaultShader = Shader.CreateVertexFragment("Default Shader", "./Shaders/default.vert", "./Shaders/default.frag");
             Shader defaultShaderPrepass = Shader.CreateVertexFragment("Default Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
-            DefaultMaterial = new Material(defaultShader, defaultShaderPrepass);
-            Shader defaultShaderAlphaCutoutPrepass = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout_prepass.frag");
-            DefaultMaterialAlphaCutout = new Material(defaultShader, defaultShaderAlphaCutoutPrepass);
-
             Shader defaultClusteredShader = Shader.CreateVertexFragment("Default Clustered Shader", "./Shaders/default.vert", "./Shaders/defaultClustered.frag");
             Shader defaultClusteredShaderPrepass = Shader.CreateVertexFragment("Default Clustered Shader Prepass", "./Shaders/default.vert", "./Shaders/default_prepass.frag");
-            DefaultClusteredMaterial = new Material(defaultClusteredShader, defaultClusteredShaderPrepass);
+            DefaultMaterial = new Material(defaultShader, defaultShaderPrepass, defaultClusteredShader, defaultClusteredShaderPrepass);
+            Shader defaultShaderAlphaCutoutPrepass = Shader.CreateVertexFragment("Default Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout_prepass.frag");
             Shader defaultClusteredShaderAlphaCutoutPrepass = Shader.CreateVertexFragment("Default Clustered Shader Alpha Cutout", "./Shaders/default.vert", "./Shaders/alphaCutout_prepass.frag");
-            DefaultClusteredMaterialAlphaCutout = new Material(defaultClusteredShader, defaultClusteredShaderAlphaCutoutPrepass);
+            DefaultMaterialAlphaCutout = new Material(defaultShader, defaultShaderAlphaCutoutPrepass, defaultClusteredShader, defaultClusteredShaderAlphaCutoutPrepass);
 
             CubeMesh = Model.CreateCube((1, 1, 1), DebugMaterial);
 
             // FIXME: Make the tonemapping more consistent?
             Shader tonemapShader = Shader.CreateVertexFragment("Tonemap Shader", "./Shaders/fullscreen.vert", "./Shaders/tonemap.frag");
-            Tonemap = new Material(tonemapShader, null);
+            Tonemap = new Material(tonemapShader, null, tonemapShader, null);
 
             Shader hiZPass = Shader.CreateVertexFragment("HiZ Pass Shader", "./Shaders/fullscreen.vert", "./Shaders/HiZMip.frag");
-            HiZPass = new Material(hiZPass, null);
+            HiZPass = new Material(hiZPass, null, hiZPass, null);
 
             Shader hiZDepthCopy = Shader.CreateVertexFragment("HiZ copy depth Shader", "./Shaders/fullscreen.vert", "./Shaders/depth_to_texture.frag");
-            HiZDepthCopy = new Material(hiZDepthCopy, null);
+            HiZDepthCopy = new Material(hiZDepthCopy, null, hiZDepthCopy, null);
 
             ClusterData = Buffer.CreateBuffer("Cluster AABBs", TotalClusters, 8 * sizeof(float), BufferStorageFlags.None);
             Shader clusterGen = Shader.CreateCompute("Cluster generation", "./Shaders/Clustered/build_clusters.comp");
-            ClusterGenPass = new Material(clusterGen, null);
+            ClusterGenPass = new Material(clusterGen, null, clusterGen, null);
             Shader lightAssignment = Shader.CreateCompute("Light assignment", "./Shaders/Clustered/assign_lights.comp");
-            LightAssignmentPass = new Material(lightAssignment, null);
+            LightAssignmentPass = new Material(lightAssignment, null, lightAssignment, null);
 
             // FIXME: Figure out if this should be a mapped buffer or double buffered.
             unsafe
@@ -198,8 +216,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             //Entities = Model.LoadModel("./Sponza/sponza.obj", 0.3f, defaultShader, defaultShaderPrepass, defaultShaderAlphaCutout, defaultShaderAlphaCutoutPrepass);
             //Entities = Model.LoadModel("C:\\Users\\juliu\\Desktop\\temple.glb", defaultShader, defaultShaderAlphaCutout);
-            Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultShaderPrepass, defaultShader, defaultShaderAlphaCutoutPrepass);
-            Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultClusteredShader, defaultClusteredShaderPrepass, defaultClusteredShader, defaultClusteredShaderAlphaCutoutPrepass);
+            Entities = Model.LoadModel("./temple/temple.gltf", 1.0f, defaultShader, defaultClusteredShader, defaultShader, defaultShaderAlphaCutoutPrepass);
             // Octahedron mapped point light shadows put into a atlas?
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
@@ -226,8 +243,18 @@ namespace DD2470_Clustered_Volume_Renderer
                 ));*/
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
+            // 32 x 18 x 72
+            VolumeScatterExtinctionTexture = Texture.CreateEmpty3D("Volume Scatter Extinction", VolumeFroxels.X, VolumeFroxels.Y, VolumeFroxels.Z, SizedInternalFormat.Rgba16f);
+            VolumeEmissionPhaseTexture = Texture.CreateEmpty3D("Volume Emission Phase", VolumeFroxels.X, VolumeFroxels.Y, VolumeFroxels.Z, SizedInternalFormat.Rgba16f);
 
+            Shader volumeDensityTransfer = Shader.CreateCompute("Density Transfer", "./Shaders/Volume/densityTransfer.comp");
+            VolumeDensityTransferPass = new Material(volumeDensityTransfer, null, volumeDensityTransfer, null);
 
+            unsafe
+            {
+                VolumeViewDataBuffer = Buffer.CreateBuffer("Volume View data", 1, sizeof(ViewData), BufferStorageFlags.DynamicStorageBit);
+            }
+            
             // FIXME: Make a VAO for each mesh?
             TheVAO = Graphics.SetupVAO("The VAO");
 
@@ -286,6 +313,24 @@ namespace DD2470_Clustered_Volume_Renderer
             if (ImGui.Begin("Settings"))
             {
                 ImGui.PushItemWidth(ImGui.GetWindowWidth() * 0.5f);
+
+                if(ImGui.BeginCombo("Render path", CurrentRenderpath.ToString()))
+                {
+                    foreach (var item in Enum.GetValues<RenderPath>())
+                    {
+                        bool is_selected = (item == CurrentRenderpath);
+                        if (ImGui.Selectable(item.ToString(), is_selected))
+                        {
+                            CurrentRenderpath = item;
+                        }
+
+                        if (is_selected)
+                        {
+                            ImGui.SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui.EndCombo();
+                }
 
                 ImGui.SeparatorText("Debug Visualizations");
 
@@ -378,7 +423,7 @@ namespace DD2470_Clustered_Volume_Renderer
             public Buffer IndexBuffer;
 
             public Shader Shader;
-            public Shader? PrepassShader;
+            public Shader PrepassShader;
 
             public Texture AlbedoTexture;
             public Texture NormalTexture;
@@ -425,7 +470,7 @@ namespace DD2470_Clustered_Volume_Renderer
             public int CompareTo(EntityRenderData other)
             {
                 if (!this.Culled && !other.Culled)
-                    return Material.Compare(this.Entity.Mesh?.Material, other.Entity.Mesh?.Material);
+                    return Material.Compare(this.Entity.Mesh?.Material, other.Entity.Mesh?.Material, Window.CurrentRenderpath);
                 else if (this.Culled && other.Culled)
                     return 0;
                 else if (this.Culled)
@@ -460,6 +505,11 @@ namespace DD2470_Clustered_Volume_Renderer
             projectionData.NearZ = Camera.NearPlane;
             projectionData.FarZ = Camera.FarPlane;
             Buffer.UpdateSubData<ProjectionData>(ProjectionDataBuffer, stackalloc ProjectionData[1] { projectionData }, 0);
+
+            ViewData viewData;
+            viewData.InverseViewProjectionMatrix = Matrix4.Invert(vp);
+            viewData.ScreenSize = new Vector4i(FramebufferSize, (0, 0));
+            Buffer.UpdateSubData<ViewData>(VolumeViewDataBuffer, stackalloc ViewData[1] { viewData }, 0);
 
             Frustum frustum = Frustum.FromCamera(Camera);
 
@@ -612,7 +662,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 int offset = 1;
                 int instanceCount = 1;
-                while (i + offset < RenderEntities.Count && CanInstance(baseRenderData.Entity, RenderEntities[i + offset].Entity))
+                while (i + offset < RenderEntities.Count && CanInstance(baseRenderData.Entity, RenderEntities[i + offset].Entity, CurrentRenderpath))
                 {
                     if (RenderEntities[i + offset].Culled == false)
                     {
@@ -660,8 +710,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     PositionBuffer = baseRenderData.Entity.Mesh.PositionBuffer,
                     AttributeBuffer = baseRenderData.Entity.Mesh.AttributeBuffer,
                     IndexBuffer = baseRenderData.Entity.Mesh.IndexBuffer,
-                    Shader = baseRenderData.Entity.Mesh.Material.Shader,
-                    PrepassShader = baseRenderData.Entity.Mesh.Material.PrepassShader,
+                    Shader = baseRenderData.Entity.Mesh.Material.GetShader(CurrentRenderpath),
+                    PrepassShader = baseRenderData.Entity.Mesh.Material.GetPrepassShader(CurrentRenderpath),
                     AlbedoTexture = baseRenderData.Entity.Mesh.Material.Albedo ?? DefaultAlbedo,
                     NormalTexture = baseRenderData.Entity.Mesh.Material.Normal ?? DefaultNormal,
                     RoughnessMetallicTexture = baseRenderData.Entity.Mesh.Material.RoughnessMetallic ?? DefaultRoughnessMetallic,
@@ -682,7 +732,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 i += offset - 1;
 
-                static bool CanInstance(Entity @base, Entity entity)
+                static bool CanInstance(Entity @base, Entity entity, RenderPath renderPath)
                 {
                     if (@base.Mesh == null || entity.Mesh == null) return false;
 
@@ -692,7 +742,7 @@ namespace DD2470_Clustered_Volume_Renderer
                         @base.Mesh.BaseVertex == entity.Mesh.BaseVertex &&
                         @base.Mesh.IndexCount == entity.Mesh.IndexCount &&
                         @base.Mesh.IndexType == entity.Mesh.IndexType &&
-                        @base.Mesh.Material.Shader == entity.Mesh.Material.Shader)
+                        @base.Mesh.Material.GetShader(renderPath) == entity.Mesh.Material.GetShader(renderPath))
                     {
                         return true;
                     }
@@ -733,10 +783,11 @@ namespace DD2470_Clustered_Volume_Renderer
                 for (int i = 0; i < drawcalls.Count; i++)
                 {
                     Drawcall drawcall = drawcalls[i];
-                    Graphics.UseShader(drawcall.PrepassShader ?? drawcall.Shader);
 
-                    if (drawcall.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader ||
-                        drawcall.PrepassShader == DefaultClusteredMaterialAlphaCutout.PrepassShader)
+                    Graphics.UseShader(drawcall.PrepassShader);
+
+                    // FIXME: Better way to detect cutout shader...
+                    if (drawcall.PrepassShader == DefaultMaterialAlphaCutout.PrepassShader)
                     {
                         Graphics.BindTexture(0, drawcall.AlbedoTexture);
 
@@ -756,93 +807,96 @@ namespace DD2470_Clustered_Volume_Renderer
             }
             GL.PopDebugGroup();
 
-            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Hi-Z");
+            if (CurrentRenderpath == RenderPath.ClusteredForwardPath)
             {
-                Graphics.UseShader(HiZDepthCopy.Shader);
-
-                int mipWidth = HDRFramebuffer.DepthStencilAttachment.Width;
-                int mipHeight = HDRFramebuffer.DepthStencilAttachment.Height;
-
-                GL.Disable(EnableCap.DepthTest);
-                Graphics.SetDepthWrite(false);
-                Graphics.SetColorWrite(ColorChannels.All);
-
-                // Copy over the depth data...
-                GL.BindFramebuffer(FramebufferTarget.Framebuffer, HiZMipFramebuffer.Handle);
-                GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, 0);
-                GL.Viewport(0, 0, HiZMipFramebuffer.ColorAttachment0.Width, HiZMipFramebuffer.ColorAttachment0.Height);
-                Graphics.BindTexture(0, HDRFramebuffer.DepthStencilAttachment);
-                GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
-
-                Graphics.UseShader(HiZPass.Shader);
-
-                for (int i = 1; i < HiZMipFramebuffer.ColorAttachment0.MipCount; i++)
+                GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Hi-Z");
                 {
-                    mipWidth = Math.Max(1, mipWidth / 2);
-                    mipHeight = Math.Max(1, mipHeight / 2);
+                    Graphics.UseShader(HiZDepthCopy.Shader);
 
-                    int layerToRenderTo = i;
-                    int layerToSampleFrom = layerToRenderTo - 1;
+                    int mipWidth = HDRFramebuffer.DepthStencilAttachment.Width;
+                    int mipHeight = HDRFramebuffer.DepthStencilAttachment.Height;
 
-                    GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, layerToRenderTo);
-                    GL.Viewport(0, 0, mipWidth, mipHeight);
+                    GL.Disable(EnableCap.DepthTest);
+                    Graphics.SetDepthWrite(false);
+                    Graphics.SetColorWrite(ColorChannels.All);
 
-                    var status = GL.CheckNamedFramebufferStatus(HiZMipFramebuffer.Handle, FramebufferTarget.Framebuffer);
-                    if (status != FramebufferStatus.FramebufferComplete)
+                    // Copy over the depth data...
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, HiZMipFramebuffer.Handle);
+                    GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, 0);
+                    GL.Viewport(0, 0, HiZMipFramebuffer.ColorAttachment0.Width, HiZMipFramebuffer.ColorAttachment0.Height);
+                    Graphics.BindTexture(0, HDRFramebuffer.DepthStencilAttachment);
+                    GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+
+                    Graphics.UseShader(HiZPass.Shader);
+
+                    for (int i = 1; i < HiZMipFramebuffer.ColorAttachment0.MipCount; i++)
                     {
-                        Console.WriteLine($"Incomplete framebuffer: {status}");
+                        mipWidth = Math.Max(1, mipWidth / 2);
+                        mipHeight = Math.Max(1, mipHeight / 2);
+
+                        int layerToRenderTo = i;
+                        int layerToSampleFrom = layerToRenderTo - 1;
+
+                        GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, layerToRenderTo);
+                        GL.Viewport(0, 0, mipWidth, mipHeight);
+
+                        var status = GL.CheckNamedFramebufferStatus(HiZMipFramebuffer.Handle, FramebufferTarget.Framebuffer);
+                        if (status != FramebufferStatus.FramebufferComplete)
+                        {
+                            Console.WriteLine($"Incomplete framebuffer: {status}");
+                        }
+
+                        Graphics.BindTexture(0, HiZMipFramebuffer.ColorAttachment0);
+                        GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, layerToSampleFrom);
+                        GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, layerToSampleFrom);
+
+                        GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
                     }
 
-                    Graphics.BindTexture(0, HiZMipFramebuffer.ColorAttachment0);
-                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, layerToSampleFrom);
-                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, layerToSampleFrom);
+                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, 0);
+                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, 1000);
 
-                    GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+                    GL.Enable(EnableCap.DepthTest);
+
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
+                    GL.Viewport(0, 0, HDRFramebuffer.ColorAttachment0.Width, HDRFramebuffer.ColorAttachment0.Height);
                 }
+                GL.PopDebugGroup();
 
-                GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, 0);
-                GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, 1000);
-
-                GL.Enable(EnableCap.DepthTest);
-
-                GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
-                GL.Viewport(0, 0, HDRFramebuffer.ColorAttachment0.Width, HDRFramebuffer.ColorAttachment0.Height);
-            }
-            GL.PopDebugGroup();
-
-            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Clustering");
-            {
+                GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Clustering");
                 {
-                    Graphics.UseShader(ClusterGenPass.Shader);
-                    Graphics.BindShaderStorageBlock(0, ClusterData);
-                    Graphics.BindUniformBuffer(1, ProjectionDataBuffer);
+                    {
+                        Graphics.UseShader(ClusterGenPass.Shader);
+                        Graphics.BindShaderStorageBlock(0, ClusterData);
+                        Graphics.BindUniformBuffer(1, ProjectionDataBuffer);
 
-                    // FIXME: Some way to parameterize the number of clusters...
-                    GL.DispatchCompute(ClusterCounts.X, ClusterCounts.Y, ClusterCounts.Z);
+                        // FIXME: Some way to parameterize the number of clusters...
+                        GL.DispatchCompute(ClusterCounts.X, ClusterCounts.Y, ClusterCounts.Z);
+                    }
+
+                    {
+                        Graphics.UseShader(LightAssignmentPass.Shader);
+
+                        // FIXME: this is unecessary?
+                        Graphics.BindShaderStorageBlock(0, ClusterData);
+
+                        Graphics.BindShaderStorageBlock(1, LightBuffer);
+                        Graphics.BindShaderStorageBlock(2, LightIndexBuffer);
+                        Graphics.BindShaderStorageBlock(3, LightGridBuffer);
+                        Graphics.BindShaderStorageBlock(4, DebugBuffer);
+
+                        Graphics.BindAtomicCounterBuffer(0, AtomicIndexCountBuffer);
+
+                        // FIXME: Easy way to switch between camera and camera2 for this...
+                        GL.UniformMatrix4(0, true, ref viewMatrix);
+
+                        // FIXME: Some way to parameterize the number of clusters...
+                        GL.DispatchCompute(ClusterCounts.X / 16, ClusterCounts.Y / 9, ClusterCounts.Z / 4);
+                    }
+
                 }
-
-                {
-                    Graphics.UseShader(LightAssignmentPass.Shader);
-
-                    // FIXME: this is unecessary?
-                    Graphics.BindShaderStorageBlock(0, ClusterData);
-
-                    Graphics.BindShaderStorageBlock(1, LightBuffer);
-                    Graphics.BindShaderStorageBlock(2, LightIndexBuffer);
-                    Graphics.BindShaderStorageBlock(3, LightGridBuffer);
-                    Graphics.BindShaderStorageBlock(4, DebugBuffer);
-
-                    Graphics.BindAtomicCounterBuffer(0, AtomicIndexCountBuffer);
-
-                    // FIXME: Easy way to switch between camera and camera2 for this...
-                    GL.UniformMatrix4(0, true, ref viewMatrix);
-
-                    // FIXME: Some way to parameterize the number of clusters...
-                    GL.DispatchCompute(ClusterCounts.X / 16, ClusterCounts.Y / 9, ClusterCounts.Z / 4);
-                }
-                
+                GL.PopDebugGroup();
             }
-            GL.PopDebugGroup();
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Color pass");
             {
@@ -853,12 +907,11 @@ namespace DD2470_Clustered_Volume_Renderer
                 Graphics.SetClearColor(Camera.ClearColor);
                 Graphics.Clear(ClearMask.Color);
 
-                Graphics.UseShader(DefaultMaterial.Shader);
-
                 for (int i = 0; i < drawcalls.Count; i++)
                 {
                     Drawcall drawcall = drawcalls[i];
 
+                    // FIXME: Change shader!
                     Graphics.UseShader(drawcall.Shader);
 
                     Graphics.BindTexture(0, drawcall.AlbedoTexture);
@@ -911,6 +964,19 @@ namespace DD2470_Clustered_Volume_Renderer
 
                     GL.DrawElements(PrimitiveType.Triangles, CubeMesh.IndexBuffer.Count, CubeMesh.IndexType, 0);
                 }
+            }
+            GL.PopDebugGroup();
+
+            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Volume pass");
+            {
+                Graphics.UseShader(VolumeDensityTransferPass.Shader);
+
+                Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.WriteOnly);
+                Graphics.BindImage(1, VolumeEmissionPhaseTexture, TextureAccess.WriteOnly);
+
+                Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
+
+                GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, VolumeFroxels.Z / 4);
             }
             GL.PopDebugGroup();
 

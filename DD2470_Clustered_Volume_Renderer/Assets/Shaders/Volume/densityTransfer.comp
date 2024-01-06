@@ -1,0 +1,30 @@
+#version 460 core
+
+layout(rgba16f, binding=0) uniform writeonly image3D img_VolumeScatterAndExtinction;
+layout(rgba16f, binding=1) uniform writeonly image3D img_VolumeEmissionAndPhase;
+
+layout(std140, row_major, binding=0) uniform ViewData
+{
+    mat4 inverseViewProjectionMatrix;
+    uvec2 screenDimentions;
+};
+
+// FIXME: Is this a good local size?
+layout(local_size_x=16, local_size_y=9, local_size_z=4) in;
+void main()
+{
+    uvec2 tileSizePx = screenDimentions / gl_NumWorkGroups.xy;
+    // FIXME: Maybe offset this by 0.5 to center voxels?
+    ivec3 imageCoord = ivec3(gl_GlobalInvocationID);
+    uvec3 screenCoord = imageCoord;
+
+    // FIXME: what should the Z coordinate here really be?
+    vec3 clipCoord = vec3(vec2(screenCoord.xy) / screenDimentions, screenCoord.z / 71);
+    clipCoord.xy = clipCoord.xy * 2 - 1;
+    vec4 world = vec4(clipCoord, 1.0) * inverseViewProjectionMatrix;
+    world.xyz /= world.w;
+
+    // Now we have to worldspace coordinate of the voxel
+    imageStore(img_VolumeScatterAndExtinction, imageCoord, world);
+    imageStore(img_VolumeEmissionAndPhase, imageCoord, vec4(clipCoord, 1.0));
+}
