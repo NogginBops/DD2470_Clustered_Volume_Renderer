@@ -230,7 +230,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
 
-            const int NLights = 100;
+            const int NLights = 25;
             Random rand = new Random();
             Vector3 min = new Vector3(-300, 0, -350);
             Vector3 max = new Vector3(300, 40, 250);

@@ -198,7 +198,7 @@ vec3 ShadeFogOutScatter(vec3 color)
 
 	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, zTile / 95.0));
 
-	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb * 0.1;
+	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb;
 }
 
 void main()
@@ -267,7 +267,7 @@ void main()
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		//color += diffuse * kD + specular;
+		color += diffuse * kD + specular;
 	}
 
 	color = ShadeFogOutScatter(color);

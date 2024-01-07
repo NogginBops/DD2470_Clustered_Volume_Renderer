@@ -50,10 +50,23 @@ void main()
 
     fogDensity = min(max(fogDensity, 1.0), 0.00001);
 
+    float g = 0;
+
+    if (world.y < FogBottomHeight && world.x < 0 && world.z < 0)
+    {
+        fogDensity = 100 * FogDensityScale;
+        g = 0.1;
+    }
+    else
+    {
+        fogDensity = 0;
+        g = 0.999;
+    }
+
     // Now we have to worldspace coordinate of the voxel
     // FIXME: Transfer scatter?
     // FIXME: Phase function
     // FIXME: Emission?
     imageStore(img_VolumeScatterAndExtinction, imageCoord, vec4(world.xyz, fogDensity * 0.0001));
-    imageStore(img_VolumeEmissionAndPhase, imageCoord, vec4(clipCoord, 0.1));
+    imageStore(img_VolumeEmissionAndPhase, imageCoord, vec4(clipCoord, g));
 }
