@@ -111,7 +111,8 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material LightAssignmentPass;
 
         // 32 x 18 x 72
-        public static readonly Vector3i VolumeFroxels = ClusterCounts * (2, 2, 3);
+        // FIXME: What resolution do we want?
+        public static readonly Vector3i VolumeFroxels = ClusterCounts * (10, 10, 4);
         public Texture VolumeScatterExtinctionTexture;
         public Texture VolumeEmissionPhaseTexture;
         public Material VolumeDensityTransferPass;
@@ -229,18 +230,18 @@ namespace DD2470_Clustered_Volume_Renderer
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
 
-            const int NLights = 0;
+            const int NLights = 100;
             Random rand = new Random();
-            Vector3 min = new Vector3(-300, 0, -250);
+            Vector3 min = new Vector3(-300, 0, -350);
             Vector3 max = new Vector3(300, 40, 250);
             for (int i = 0; i < NLights; i++)
             {
                 Lights.Add(
                     new PointLight(
                         rand.NextVector3(min, max),
-                        rand.NextSingle() * 100 + 10f,
+                        rand.NextSingle() * 1000 + 100f,
                         rand.NextColor4Hue(1, 1),
-                        rand.NextSingle() * 100_00 + 1f));
+                        rand.NextSingle() * 100 + 1f));
             }
             // "sun"
             /*Lights.Add(new PointLight(
@@ -253,13 +254,17 @@ namespace DD2470_Clustered_Volume_Renderer
                 new Vector3(0, 10, -15),
                 100,
                 Color4.Red,
-                1_000
+                100
                 ));
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
             // 32 x 18 x 72
             VolumeScatterExtinctionTexture = Texture.CreateEmpty3D("Volume Scatter Extinction", VolumeFroxels.X, VolumeFroxels.Y, VolumeFroxels.Z, SizedInternalFormat.Rgba16f);
+            VolumeScatterExtinctionTexture.SetFilter(TextureMinFilter.Linear, TextureMagFilter.Linear);
+            VolumeScatterExtinctionTexture.SetWrap(TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge);
             VolumeEmissionPhaseTexture = Texture.CreateEmpty3D("Volume Emission Phase", VolumeFroxels.X, VolumeFroxels.Y, VolumeFroxels.Z, SizedInternalFormat.Rgba16f);
+            VolumeEmissionPhaseTexture.SetFilter(TextureMinFilter.Linear, TextureMagFilter.Linear);
+            VolumeEmissionPhaseTexture.SetWrap(TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge);
 
             Shader volumeDensityTransfer = Shader.CreateCompute("Density Transfer", "./Shaders/Volume/densityTransfer.comp");
             VolumeDensityTransferPass = new Material(volumeDensityTransfer, null, volumeDensityTransfer, null);
@@ -956,6 +961,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindShaderStorageBlock(2, LightIndexBuffer);
                     Graphics.BindShaderStorageBlock(3, LightGridBuffer);
 
+                    GL.Uniform3(0, Camera.Transform.LocalPosition);
+
                     GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, VolumeFroxels.Z / 4);
                 }
 
@@ -1035,6 +1042,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     Matrix4 centeredVP = new Matrix4(new Matrix3(viewMatrix)) * projectionMatrix;
                     GL.UniformMatrix4(0, true, ref centeredVP);
                     GL.Uniform1(15, SkyBoxExposure);
+
+                    GL.Uniform2(21, (uint)FramebufferSize.X, (uint)FramebufferSize.Y);
 
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);

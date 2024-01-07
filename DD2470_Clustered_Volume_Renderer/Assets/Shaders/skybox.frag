@@ -12,16 +12,18 @@ layout(location=15) uniform float u_Exposure;
 
 layout(location=21) uniform uvec2 u_ScreenSize;
 
-vec3 CalculateFogOutScatter()
+vec3 ShadeFogOutScatter(vec3 color)
 {
 	vec2 uv = gl_FragCoord.xy / u_ScreenSize;
 
-	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, gl_FragCoord.z));
+	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, 1));
 
-	return outScatterAndTransmittance.rgb * outScatterAndTransmittance.a;
+	//return color * exp(-linearDepth01(gl_FragCoord.z)*20);
+	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb * 0.1;
 }
 
 void main()
 {
     f_color = vec4(texture(tex_Skybox, v_uvw0).rgb * u_Exposure, 1.0);
+    f_color.rgb = ShadeFogOutScatter(f_color.rgb);
 }

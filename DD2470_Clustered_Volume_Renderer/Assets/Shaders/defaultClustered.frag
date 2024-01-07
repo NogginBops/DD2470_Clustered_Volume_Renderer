@@ -194,10 +194,11 @@ vec3 ShadeFogOutScatter(vec3 color)
 {
 	vec2 uv = gl_FragCoord.xy / u_ScreenSize;
 
-	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, linearDepth01(gl_FragCoord.z)));
+	float zTile = max(log2(linearDepth(gl_FragCoord.z)) * (4*u_zScale) + (4*u_zBias), 0.0);
 
-	//return color * exp(-linearDepth01(gl_FragCoord.z)*20);
-	return color * outScatterAndTransmittance.aaa;
+	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, zTile / 95.0));
+
+	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb * 0.1;
 }
 
 void main()
@@ -266,7 +267,7 @@ void main()
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		color += diffuse * kD + specular;
+		//color += diffuse * kD + specular;
 	}
 
 	color = ShadeFogOutScatter(color);

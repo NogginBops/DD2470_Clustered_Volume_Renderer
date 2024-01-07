@@ -12,6 +12,8 @@ layout(std140, row_major, binding=0) uniform ViewData
     float zFar;
 };
 
+layout(location=0) uniform vec3 u_CameraPosition;
+
 struct PointLight
 {
 	vec4 PositionAndInvSqrRadius;
@@ -79,7 +81,7 @@ void main()
     // Offset coord to center of the froxel
     vec3 screenCoord = vec3(gl_GlobalInvocationID + 0.5);
 
-    float z  = -zNear * pow(zFar/ zNear, screenCoord.z / 72);
+    float z  = -zNear * pow(zFar/ zNear, screenCoord.z / 96);
 
     // FIXME: what should the Z coordinate here really be?
     vec3 clipCoord = vec3(vec2(screenCoord.xy * tileSizePx) / screenDimentions, -1);
@@ -103,12 +105,18 @@ void main()
         float distanceSquare = dot(lightDirection, lightDirection);
         float attenuation = CalcPointLightAttenuation6(distanceSquare, light.PositionAndInvSqrRadius.w);
 
-        float cosTheta = dot(vec3(0, 0, 1), normalize(lightDirection));
+        vec3 cameraDirection = normalize(u_CameraPosition - world.xyz);
+
+        // FIXME: Calculate camera direction from world position and camera pos!
+        float cosTheta = dot(cameraDirection, normalize(lightDirection));
 
         float p = HenyeyGreenstein(cosTheta, emissionAndPhase.w);
 
         // This does not consider the optical depth of the path from this point to the light!!
         vec3 incoming = light.ColorAndSqrRadius.rgb * attenuation;
+
+        // Approximate optical depth to the light.
+        incoming *= min(exp(-sqrt(distanceSquare) * 0.015), 1.0);
 
         inscatter += incoming * p;
     }

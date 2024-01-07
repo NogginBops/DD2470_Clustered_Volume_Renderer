@@ -396,6 +396,13 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.TextureParameter(Handle, TextureParameterName.TextureMagFilter, (int)magFilter);
         }
 
+        public void SetWrap(TextureWrapMode wrapR, TextureWrapMode wrapS, TextureWrapMode wrapT)
+        {
+            GL.TextureParameter(Handle, TextureParameterName.TextureWrapR, (int)wrapR);
+            GL.TextureParameter(Handle, TextureParameterName.TextureWrapS, (int)wrapS);
+            GL.TextureParameter(Handle, TextureParameterName.TextureWrapT, (int)wrapT);
+        }
+
         public void SetAniso(float maxAniso)
         {
             GL.TextureParameter(Handle, TextureParameterName.TextureMaxAnisotropy, maxAniso);

@@ -34,7 +34,7 @@ void main()
     vec3 screenCoord = vec3(gl_GlobalInvocationID + 0.5);
 
     // FIXME: 72
-    float z  = -zNear * pow(zFar/ zNear, screenCoord.z / 72);
+    float z  = -zNear * pow(zFar/ zNear, screenCoord.z / 96);
 
     // FIXME: what should the Z coordinate here really be?
     vec3 clipCoord = vec3(vec2(screenCoord.xy * tileSizePx) / screenDimentions, -1);
@@ -48,12 +48,12 @@ void main()
 
     float fogDensity = FogDensityScale * exp(-FogDensityFactor * ((world.y - FogBottomHeight) / (FogTopHeight - FogBottomHeight)));
 
-    fogDensity = min(fogDensity, 1.0);
+    fogDensity = min(max(fogDensity, 1.0), 0.00001);
 
     // Now we have to worldspace coordinate of the voxel
     // FIXME: Transfer scatter?
     // FIXME: Phase function
     // FIXME: Emission?
-    imageStore(img_VolumeScatterAndExtinction, imageCoord, vec4(world.xyz, fogDensity));
-    imageStore(img_VolumeEmissionAndPhase, imageCoord, vec4(clipCoord, 0.3));
+    imageStore(img_VolumeScatterAndExtinction, imageCoord, vec4(world.xyz, fogDensity * 0.0001));
+    imageStore(img_VolumeEmissionAndPhase, imageCoord, vec4(clipCoord, 0.1));
 }
