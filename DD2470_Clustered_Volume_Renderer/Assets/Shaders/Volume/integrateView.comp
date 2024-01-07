@@ -1,0 +1,32 @@
+#version 460 core
+
+layout(rgba16f, binding=0) uniform image3D img_VolumeScatterAndExtinction;
+
+// FIXME: is this needed for calculating the step length?
+layout(std140, row_major, binding=0) uniform ViewData
+{
+    mat4 inverseViewProjectionMatrix;
+    uvec2 screenDimentions;
+};
+
+layout(local_size_x=16, local_size_y=9, local_size_z=1) in;
+void main()
+{
+    vec4 accumScatteringTransmittance = vec4(0.0, 0.0, 0.0, 1.0);
+
+    // FIXME: get 72 from somewhere?
+    const float VolumeDepth = 72;
+    for (uint depth = 0; depth < VolumeDepth; depth++)
+    {
+        ivec3 imageCoord = ivec3(gl_GlobalInvocationID.xy, depth);
+
+        float scatterAndExctinction = imageLoad(img_VolumeScatterAndExtinction, imageCoord);
+        // FIXME: Multiply by step length!
+        float transmittance = exp(-scatterAndExctinction.w /* * stepLen */);
+
+        accumScatteringTransmittance.rgb += scatterAndExctinction.rgb * accumScatteringTransmittance.a;
+        accumScatteringTransmittance.a += transmittance;
+
+        imageStore(img_VolumeScatterAndExtinction, imageCoord, accumScatteringTransmittance);
+    }
+}

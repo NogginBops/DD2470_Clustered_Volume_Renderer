@@ -15,6 +15,8 @@ layout(binding=5) uniform samplerCube tex_Irradiance;
 layout(binding=6) uniform samplerCube tex_Radiance;
 layout(binding=7) uniform sampler2D tex_brdfLUT;
 
+layout(binding=10) uniform sampler3D tex_FogVolume;
+
 layout(location=10) uniform vec3 u_CameraPosition;
 layout(location=11) uniform float u_zNear;
 layout(location=12) uniform float u_zFar;
@@ -24,6 +26,7 @@ layout(location=14) uniform float u_zBias;
 layout(location=15) uniform float u_Exposure;
 
 layout(location=20) uniform uvec3 u_ClusterCount;
+layout(location=21) uniform uvec2 u_ScreenSize;
 
 const float PI = 3.14159265359;
 
@@ -182,6 +185,21 @@ float linearDepth(float depthSample){
     return linear;
 }
 
+float linearDepth01(float depthSample)
+{
+	return depthSample / (u_zFar - depthSample * (u_zFar - u_zNear));
+}
+
+vec3 ShadeFogOutScatter(vec3 color)
+{
+	vec2 uv = gl_FragCoord.xy / u_ScreenSize;
+
+	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, linearDepth01(gl_FragCoord.z)));
+
+	//return color * exp(-linearDepth01(gl_FragCoord.z)*20);
+	return color * outScatterAndTransmittance.aaa;
+}
+
 void main()
 {
 	vec3 normal = normalize(gl_FrontFacing ? v_normal : -v_normal);
@@ -250,6 +268,8 @@ void main()
 
 		color += diffuse * kD + specular;
 	}
+
+	color = ShadeFogOutScatter(color);
 	
 	f_color = vec4(color, 1.0);
 }
