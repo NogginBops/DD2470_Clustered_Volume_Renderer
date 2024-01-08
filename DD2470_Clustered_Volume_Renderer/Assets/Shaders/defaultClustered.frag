@@ -156,7 +156,6 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 	vec3 lightDirection =  light.PositionAndInvSqrRadius.xyz - v_position;
 	float distanceSquare = dot(lightDirection, lightDirection);
 	float attenuation = CalcPointLightAttenuation6(distanceSquare, light.PositionAndInvSqrRadius.w);
-	//attenuation = 0.01;
 	lightDirection =  normalize(lightDirection);
 
 	vec3 halfwayDirection = normalize(lightDirection + surface.ViewDirection);

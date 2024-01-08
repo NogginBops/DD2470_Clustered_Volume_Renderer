@@ -84,11 +84,17 @@ bool testSphereAABBB(uint light, uint clusterIndex)
 
 void main()
 {
-    if (gl_GlobalInvocationID == 0)
-    {
-        atomicCounterExchange(atomic_globalIndexCount, 0);
-    }
-    barrier();
+    // FIXME: This is the wrong way to do this, because different
+    // work groups are not synced it's possible for one work group
+    // to finish the entire execution before the "first" invocation
+    // gets here.
+    // One way to do this is to do this "externally" in the opengl api
+    // alternatively we could have this happen when we build light clusters.
+    //if (gl_GlobalInvocationID == 0)
+    //{
+    //    atomicCounterExchange(atomic_globalIndexCount, 0);
+    //}
+    //barrier();
 
     uint threadCount = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;
     uint lightCount  = ssbo_lights.length();

@@ -111,7 +111,7 @@ void main()
     uint lightOffset = ssbo_lightGrid[clusterIndex].Offset;
     uint lightCount = ssbo_lightGrid[clusterIndex].Count;
 
-#if 0
+#if 1
     vec3 inscatter = vec3(0);
     for (uint i = 0; i < lightCount; i++)
     {
@@ -139,7 +139,7 @@ void main()
             float opticalDepth = min(exp(-sqrt(distanceSquare) * 0.055), 1.0);
             //opticalDepth = 1;
 
-            incoming += /*light.ColorAndSqrRadius.rgb * */ attenuation * opticalDepth * p * COLORS[lightCount%COLORS.length()]*100;
+            incoming += light.ColorAndSqrRadius.rgb * attenuation * opticalDepth * p;
         }
         incoming /= u_JitterOffsets.length();
 

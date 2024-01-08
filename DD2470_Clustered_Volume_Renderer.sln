@@ -4,9 +4,6 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 17.7.34221.43
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DD2470_Clustered_Volume_Renderer", "DD2470_Clustered_Volume_Renderer\DD2470_Clustered_Volume_Renderer.csproj", "{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}"
-	ProjectSection(ProjectDependencies) = postProject
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14} = {DBDA8350-8E4D-40C9-817C-C1271F288B14}
-	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AssetProcessor", "AssetProcessor\AssetProcessor.csproj", "{DBDA8350-8E4D-40C9-817C-C1271F288B14}"
 EndProject

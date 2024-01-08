@@ -968,6 +968,8 @@ namespace DD2470_Clustered_Volume_Renderer
                         Graphics.BindShaderStorageBlock(0, ClusterData);
                         Graphics.BindUniformBuffer(1, ProjectionDataBuffer);
 
+                        GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
+
                         // FIXME: Some way to parameterize the number of clusters...
                         GL.DispatchCompute(ClusterCounts.X, ClusterCounts.Y, ClusterCounts.Z);
                     }
@@ -982,6 +984,8 @@ namespace DD2470_Clustered_Volume_Renderer
                         Graphics.BindShaderStorageBlock(2, LightIndexBuffer);
                         Graphics.BindShaderStorageBlock(3, LightGridBuffer);
                         Graphics.BindShaderStorageBlock(4, DebugBuffer);
+
+                        GL.ClearNamedBufferData(AtomicIndexCountBuffer.Handle, PixelInternalFormat.R32ui, PixelFormat.UnsignedInt, PixelType.UnsignedInt, 0);
 
                         Graphics.BindAtomicCounterBuffer(0, AtomicIndexCountBuffer);
 
@@ -1004,6 +1008,9 @@ namespace DD2470_Clustered_Volume_Renderer
             {
                 GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Volume pass");
                 {
+                    GL.ClearTexImage(VolumeScatterExtinctionTexture.Handle, 0, PixelFormat.Rgba, PixelType.Float, 0);
+                    GL.ClearTexImage(VolumeEmissionPhaseTexture.Handle, 0, PixelFormat.Rgba, PixelType.Float, 0);
+
                     {
                         Graphics.UseShader(VolumeDensityTransferPass.Shader);
 

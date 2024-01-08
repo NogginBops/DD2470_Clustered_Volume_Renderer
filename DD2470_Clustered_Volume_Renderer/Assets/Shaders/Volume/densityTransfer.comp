@@ -1,4 +1,4 @@
-#line 0 1
+#line 2 1
 //#version 460 core
 
 layout(rgba16f, binding=0) uniform writeonly image3D img_VolumeScatterAndExtinction;
