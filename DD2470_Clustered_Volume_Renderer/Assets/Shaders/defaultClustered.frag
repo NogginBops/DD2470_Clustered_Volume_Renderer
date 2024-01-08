@@ -27,6 +27,7 @@ layout(location=15) uniform float u_Exposure;
 
 layout(location=20) uniform uvec3 u_ClusterCount;
 layout(location=21) uniform uvec2 u_ScreenSize;
+layout(location=22) uniform bool u_RenderFog;
 
 const float PI = 3.14159265359;
 
@@ -155,6 +156,7 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 	vec3 lightDirection =  light.PositionAndInvSqrRadius.xyz - v_position;
 	float distanceSquare = dot(lightDirection, lightDirection);
 	float attenuation = CalcPointLightAttenuation6(distanceSquare, light.PositionAndInvSqrRadius.w);
+	//attenuation = 0.01;
 	lightDirection =  normalize(lightDirection);
 
 	vec3 halfwayDirection = normalize(lightDirection + surface.ViewDirection);
@@ -179,25 +181,23 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 	return (kD * surface.Albedo / PI + specular) * radiance * NdotL;
 }
 
-float linearDepth(float depthSample){
-    float depthRange = 2.0 * depthSample - 1.0;
-    float linear = 2.0 * u_zNear * u_zFar / (u_zFar + u_zNear - depthRange * (u_zFar - u_zNear));
-    return linear;
-}
-
-float linearDepth01(float depthSample)
+float linearDepth(float depthSample)
 {
-	return depthSample / (u_zFar - depthSample * (u_zFar - u_zNear));
+    float ndcDepth = 2.0 * depthSample - 1.0;
+    float linear = 2.0 * u_zNear * u_zFar / (u_zFar + u_zNear - ndcDepth * (u_zFar - u_zNear));
+    return linear;
 }
 
 vec3 ShadeFogOutScatter(vec3 color)
 {
 	vec2 uv = gl_FragCoord.xy / u_ScreenSize;
 
-	float zTile = max(log2(linearDepth(gl_FragCoord.z)) * (4*u_zScale) + (4*u_zBias), 0.0);
+	float zTile = max(log2(linearDepth(gl_FragCoord.z)) * (10*u_zScale) + (10*u_zBias), 0.0);
 
-	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, zTile / 95.0));
+	// FIXME: Possibly a cubic or quadratic interpolation here...
+	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, zTile / 240.0));
 
+	//return vec3(uv, zTile / 240.0);
 	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb;
 }
 
@@ -267,10 +267,13 @@ void main()
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		color += diffuse * kD + specular;
+		//color += diffuse * kD + specular;
 	}
 
-	color = ShadeFogOutScatter(color);
+	if (u_RenderFog)
+	{
+		color = ShadeFogOutScatter(color);
+	}
 	
 	f_color = vec4(color, 1.0);
 }

@@ -42,10 +42,22 @@ namespace DD2470_Clustered_Volume_Renderer
         public float FarZ;
     }
 
-    internal struct ViewData
+    internal unsafe struct ViewData
     {
         public Matrix4 InverseProjectionMatrix;
         public Matrix4 InverseViewMatrix;
+        public Matrix4 PrevViewProjectionMatrix;
+        public Vector4 JitterOffsets0;
+        public Vector4 JitterOffsets1;
+        public Vector4 JitterOffsets2;
+        public Vector4 JitterOffsets3;
+        public Vector4 JitterOffsets4;
+        public Vector4 JitterOffsets5;
+        public Vector4 JitterOffsets6;
+        public Vector4 JitterOffsets7;
+        public Vector4 GridSize;
+        public Vector4i CellsPerCluster;
+        public Vector4i ClusterSize;
         public Vector2i ScreenSize;
         public float NearZ;
         public float FarZ;
@@ -66,6 +78,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public ImGuiController ImGuiController;
 
         public static RenderPath CurrentRenderpath = RenderPath.ClusteredForwardPath;
+        public static bool RenderFog = true;
 
         public VAO TheVAO;
 
@@ -100,7 +113,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public static readonly Vector3i ClusterCounts = (16, 9, 24);
         public static readonly int TotalClusters = ClusterCounts.X * ClusterCounts.Y * ClusterCounts.Z;
         public static readonly int MaxLightsPerCluster = 256;
-        public static readonly int WorstCaseNumberOfClustersFilled = (int)(TotalClusters * 0.5);
+        public static readonly int WorstCaseNumberOfClustersFilled = (int)(TotalClusters * 1);
         public Buffer ClusterData;
         public Buffer ProjectionDataBuffer;
         public Buffer LightIndexBuffer;
@@ -112,16 +125,18 @@ namespace DD2470_Clustered_Volume_Renderer
 
         // 32 x 18 x 72
         // FIXME: What resolution do we want?
-        public static readonly Vector3i VolumeFroxels = ClusterCounts * (10, 10, 4);
+        public static readonly Vector3i FroxelsPerCluster = (10, 10, 10);
+        public static readonly Vector3i VolumeFroxels = ClusterCounts * FroxelsPerCluster;
         public Texture VolumeScatterExtinctionTexture;
         public Texture VolumeEmissionPhaseTexture;
+        public Texture VolumeDataHistory;
         public Material VolumeDensityTransferPass;
         public Material VolumeDensityInScatterPass;
         public Material VolumeIntegrationPass;
         public Buffer VolumeViewDataBuffer;
 
         public float FogBottomHeight = -10;
-        public float FogTopHeight = 0;
+        public float FogTopHeight = 100;
         // FIXME: Better names...
         public float FogDensity = 1;
         public float FogDensityScale = 0.5f;
@@ -232,16 +247,16 @@ namespace DD2470_Clustered_Volume_Renderer
 
             const int NLights = 25;
             Random rand = new Random();
-            Vector3 min = new Vector3(-300, 0, -350);
-            Vector3 max = new Vector3(300, 40, 250);
+            Vector3 min = new Vector3(-300, -10, -350);
+            Vector3 max = new Vector3(300, 40, 200);
             for (int i = 0; i < NLights; i++)
             {
                 Lights.Add(
                     new PointLight(
                         rand.NextVector3(min, max),
-                        rand.NextSingle() * 1000 + 100f,
+                        rand.NextSingle() * 100 + 100f,
                         rand.NextColor4Hue(1, 1),
-                        rand.NextSingle() * 100 + 1f));
+                        rand.NextSingle() * 1000 + 1f));
             }
             // "sun"
             /*Lights.Add(new PointLight(
@@ -253,7 +268,7 @@ namespace DD2470_Clustered_Volume_Renderer
             Lights.Add(new PointLight(
                 new Vector3(0, 10, -15),
                 100,
-                Color4.Red,
+                new Color4(1.0f, 0.2f, 0.2f, 1.0f),
                 100
                 ));
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
@@ -265,12 +280,15 @@ namespace DD2470_Clustered_Volume_Renderer
             VolumeEmissionPhaseTexture = Texture.CreateEmpty3D("Volume Emission Phase", VolumeFroxels.X, VolumeFroxels.Y, VolumeFroxels.Z, SizedInternalFormat.Rgba16f);
             VolumeEmissionPhaseTexture.SetFilter(TextureMinFilter.Linear, TextureMagFilter.Linear);
             VolumeEmissionPhaseTexture.SetWrap(TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge);
+            VolumeDataHistory = Texture.CreateEmpty3D("Volume Scatter Extinction #2", VolumeFroxels.X, VolumeFroxels.Y, VolumeFroxels.Z, SizedInternalFormat.Rgba16f);
+            VolumeDataHistory.SetFilter(TextureMinFilter.Linear, TextureMagFilter.Linear);
+            VolumeDataHistory.SetWrap(TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge, TextureWrapMode.ClampToEdge);
 
-            Shader volumeDensityTransfer = Shader.CreateCompute("Density Transfer", "./Shaders/Volume/densityTransfer.comp");
+            Shader volumeDensityTransfer = Shader.CreateCompute("Density Transfer", "./Shaders/Volume/densityTransfer.comp", "./Shaders/Volume/common.glsl");
             VolumeDensityTransferPass = new Material(volumeDensityTransfer, null, volumeDensityTransfer, null);
-            Shader volumeLightInScatter = Shader.CreateCompute("In-Scatter", "./Shaders/Volume/lightInScatter.comp");
+            Shader volumeLightInScatter = Shader.CreateCompute("In-Scatter", "./Shaders/Volume/lightInScatter.comp", "./Shaders/Volume/common.glsl");
             VolumeDensityInScatterPass = new Material(volumeLightInScatter, null, volumeLightInScatter, null);
-            Shader volumeIntegration = Shader.CreateCompute("Volume Integration", "./Shaders/Volume/integrateView.comp");
+            Shader volumeIntegration = Shader.CreateCompute("Volume Integration", "./Shaders/Volume/integrateView.comp", "./Shaders/Volume/common.glsl");
             VolumeIntegrationPass = new Material(volumeIntegration, null, volumeIntegration, null);
 
             unsafe
@@ -354,6 +372,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     }
                     ImGui.EndCombo();
                 }
+
+                ImGui.Checkbox("Render fog", ref RenderFog);
 
                 ImGui.SeparatorText("Fog settings");
 
@@ -520,10 +540,33 @@ namespace DD2470_Clustered_Volume_Renderer
         int entitiesCulled;
         int drawcallsGenerated;
 
+        int FrameNumber = 8;
+        static float TemporalHalton(int index, int @base)
+        {
+            float result = 0.0f;
+            float invBase = 1.0f / @base;
+            float fraction = invBase;
+            while (index > 0)
+            {
+                result += (index % @base) * fraction;
+                index /= @base;
+                fraction *= invBase;
+            }
+            return result;
+        }
+
+        public Matrix4 PrevVPMatrix;
+
         protected unsafe override void OnRenderFrame(FrameEventArgs args)
         {
             base.OnRenderFrame(args);
             long start = Stopwatch.GetTimestamp();
+
+            FrameNumber++;
+            if (FrameNumber >= 1024)
+            {
+                FrameNumber = 0;
+            }
 
             Matrix4 viewMatrix = Camera.Transform.ParentToLocal;
             Matrix4 projectionMatrix = Camera.ProjectionMatrix;
@@ -539,6 +582,28 @@ namespace DD2470_Clustered_Volume_Renderer
             ViewData viewData;
             viewData.InverseProjectionMatrix = Matrix4.Invert(projectionMatrix);
             viewData.InverseViewMatrix = Matrix4.Invert(viewMatrix);
+            viewData.PrevViewProjectionMatrix = PrevVPMatrix;
+            Unsafe.SkipInit(out viewData.JitterOffsets0);
+            Unsafe.SkipInit(out viewData.JitterOffsets1);
+            Unsafe.SkipInit(out viewData.JitterOffsets2);
+            Unsafe.SkipInit(out viewData.JitterOffsets3);
+            Unsafe.SkipInit(out viewData.JitterOffsets4);
+            Unsafe.SkipInit(out viewData.JitterOffsets5);
+            Unsafe.SkipInit(out viewData.JitterOffsets6);
+            Unsafe.SkipInit(out viewData.JitterOffsets7);
+            for (int i = 0; i < 8; i++)
+            {
+                ref Vector4 jitter = ref Unsafe.Add(ref viewData.JitterOffsets0, i);
+
+                jitter.X = TemporalHalton(FrameNumber - i, 2);
+                jitter.Y = TemporalHalton(FrameNumber - i, 3);
+                jitter.Z = TemporalHalton(FrameNumber - i, 5);
+
+                jitter = new Vector4(0.5f, 0.5f, 0.5f, 1.0f);
+            }
+            viewData.GridSize = new Vector4(VolumeFroxels, 0);
+            viewData.CellsPerCluster = new Vector4i(FroxelsPerCluster, 0);
+            viewData.ClusterSize = new Vector4i(ClusterCounts, 0);
             viewData.ScreenSize = FramebufferSize;
             viewData.NearZ = Camera.NearPlane;
             viewData.FarZ = Camera.FarPlane;
@@ -923,6 +988,10 @@ namespace DD2470_Clustered_Volume_Renderer
                         // FIXME: Easy way to switch between camera and camera2 for this...
                         GL.UniformMatrix4(0, true, ref viewMatrix);
 
+                        // Sync the AABB values.
+                        GL.MemoryBarrier(MemoryBarrierFlags.ShaderStorageBarrierBit);
+                        GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
+
                         // FIXME: Some way to parameterize the number of clusters...
                         GL.DispatchCompute(ClusterCounts.X / 16, ClusterCounts.Y / 9, ClusterCounts.Z / 4);
                     }
@@ -931,53 +1000,67 @@ namespace DD2470_Clustered_Volume_Renderer
                 GL.PopDebugGroup();
             }
 
-            GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Volume pass");
+            if (RenderFog)
             {
+                GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Volume pass");
                 {
-                    Graphics.UseShader(VolumeDensityTransferPass.Shader);
+                    {
+                        Graphics.UseShader(VolumeDensityTransferPass.Shader);
 
-                    Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.WriteOnly);
-                    Graphics.BindImage(1, VolumeEmissionPhaseTexture, TextureAccess.WriteOnly);
+                        Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.WriteOnly);
+                        Graphics.BindImage(1, VolumeEmissionPhaseTexture, TextureAccess.WriteOnly);
 
-                    Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
+                        Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
 
-                    GL.Uniform1(0, FogTopHeight);
-                    GL.Uniform1(1, FogBottomHeight);
-                    GL.Uniform1(2, FogDensity);
-                    GL.Uniform1(3, FogDensityScale);
+                        GL.Uniform1(0, FogTopHeight);
+                        GL.Uniform1(1, FogBottomHeight);
+                        GL.Uniform1(2, FogDensity);
+                        GL.Uniform1(3, FogDensityScale);
 
-                    GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, VolumeFroxels.Z / 4);
+                        GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
+
+                        GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, VolumeFroxels.Z / 4);
+                    }
+
+                    {
+                        Graphics.UseShader(VolumeDensityInScatterPass.Shader);
+
+                        Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.ReadWrite);
+                        Graphics.BindImage(1, VolumeEmissionPhaseTexture, TextureAccess.ReadWrite);
+                        Graphics.BindImage(2, VolumeDataHistory, TextureAccess.ReadOnly);
+
+                        Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
+
+                        Graphics.BindShaderStorageBlock(1, LightBuffer);
+                        Graphics.BindShaderStorageBlock(2, LightIndexBuffer);
+                        Graphics.BindShaderStorageBlock(3, LightGridBuffer);
+
+                        GL.Uniform3(0, Camera.Transform.LocalPosition);
+
+                        // Sync the data that was written in the previous step. and sync clusters.
+                        GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit | MemoryBarrierFlags.ShaderStorageBarrierBit);
+                        GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
+
+                        GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, VolumeFroxels.Z / 4);
+                    }
+
+                    {
+                        Graphics.UseShader(VolumeIntegrationPass.Shader);
+
+                        // FIXME: Do we want a separate texture for this?
+                        Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.ReadWrite);
+
+                        Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
+
+                        // Sync the data that was written in the previous step.
+                        GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit);
+                        GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
+
+                        GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, 1);
+                    }
                 }
-
-                {
-                    Graphics.UseShader(VolumeDensityInScatterPass.Shader);
-
-                    Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.ReadWrite);
-                    Graphics.BindImage(1, VolumeEmissionPhaseTexture, TextureAccess.ReadWrite);
-
-                    Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
-
-                    Graphics.BindShaderStorageBlock(1, LightBuffer);
-                    Graphics.BindShaderStorageBlock(2, LightIndexBuffer);
-                    Graphics.BindShaderStorageBlock(3, LightGridBuffer);
-
-                    GL.Uniform3(0, Camera.Transform.LocalPosition);
-
-                    GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, VolumeFroxels.Z / 4);
-                }
-
-                {
-                    Graphics.UseShader(VolumeIntegrationPass.Shader);
-
-                    // FIXME: Do we want a separate texture for this?
-                    Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.ReadWrite);
-
-                    Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
-
-                    GL.DispatchCompute(VolumeFroxels.X / 16, VolumeFroxels.Y / 9, 1);
-                }
+                GL.PopDebugGroup();
             }
-            GL.PopDebugGroup();
 
             GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Color pass");
             {
@@ -1004,7 +1087,11 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindTexture(6, SkyboxRadiance);
                     Graphics.BindTexture(7, BrdfLUT);
 
-                    Graphics.BindTexture(10, VolumeScatterExtinctionTexture);
+                    GL.Uniform1(22, RenderFog ? 1 : 0);
+                    if (RenderFog)
+                    {
+                        Graphics.BindTexture(10, VolumeScatterExtinctionTexture);
+                    }
 
                     Graphics.BindShaderStorageBlock(0, LightBuffer);
                     Graphics.BindShaderStorageBlockRange(1, drawcall.InstanceData, drawcall.InstanceOffset * sizeof(InstanceData), drawcall.InstanceCount * sizeof(InstanceData));
@@ -1028,6 +1115,10 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindVertexAttributeBuffer(TheVAO, 1, drawcall.AttributeBuffer, 0, sizeof(VertexAttributes));
                     Graphics.SetElementBuffer(TheVAO, drawcall.IndexBuffer);
 
+                    // Sync volume and cluster data.
+                    GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit);
+                    GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
+
                     GL.DrawElementsInstancedBaseVertex(PrimitiveType.Triangles, drawcall.IndexCount, drawcall.IndexType, drawcall.IndexByteOffset, drawcall.InstanceCount, drawcall.BaseVertex);
                 }
 
@@ -1044,6 +1135,12 @@ namespace DD2470_Clustered_Volume_Renderer
                     GL.Uniform1(15, SkyBoxExposure);
 
                     GL.Uniform2(21, (uint)FramebufferSize.X, (uint)FramebufferSize.Y);
+
+                    GL.Uniform1(22, RenderFog ? 1 : 0);
+                    if (RenderFog)
+                    {
+                        Graphics.BindTexture(10, VolumeScatterExtinctionTexture);
+                    }
 
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
                     Graphics.SetElementBuffer(TheVAO, CubeMesh.IndexBuffer);
@@ -1172,6 +1269,10 @@ namespace DD2470_Clustered_Volume_Renderer
             GL.PopDebugGroup();
 
             SwapBuffers();
+
+            PrevVPMatrix = vp;
+            // Swap history with current texture
+            //(VolumeScatterExtinctionTexture, VolumeDataHistory) = (VolumeDataHistory, VolumeScatterExtinctionTexture);
 
             long end = Stopwatch.GetTimestamp();
             totalTime = Stopwatch.GetElapsedTime(start, end).TotalMilliseconds;

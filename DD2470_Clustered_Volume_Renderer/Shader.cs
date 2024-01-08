@@ -18,7 +18,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public string? VertexPath;
         public string? FragmentPath;
 
+        public string? CommonPath;
         public string? ComputePath;
+
         
         public Shader(string name, int handle)
         {
@@ -53,6 +55,20 @@ namespace DD2470_Clustered_Volume_Renderer
 
             Shader shader = new Shader(name, program);
             shader.ComputePath = computePath;
+            return shader;
+        }
+
+        public static Shader CreateCompute(string name, string computePath, string commonPath)
+        {
+            string commonSource = File.ReadAllText(commonPath);
+            string computeSource = File.ReadAllText(computePath);
+
+            int computeShader = CompileShader($"{name}_compute", ShaderType.ComputeShader, new string[] { commonSource, computeSource });
+            int program = LinkProgram(name, stackalloc int[1] { computeShader });
+
+            Shader shader = new Shader(name, program);
+            shader.ComputePath = computePath;
+            shader.CommonPath = commonPath;
             return shader;
         }
 
@@ -106,6 +122,27 @@ namespace DD2470_Clustered_Volume_Renderer
             return shader;
         }
 
+        public static int CompileShader(string name, ShaderType type, string[] sources)
+        {
+            int shader = GL.CreateShader(type);
+            GL.ObjectLabel(ObjectLabelIdentifier.Shader, shader, -1, name);
+
+            GL.ShaderSource(shader, sources.Length, sources, (int[]?)null);
+
+            GL.CompileShader(shader);
+
+            GL.GetShader(shader, ShaderParameter.CompileStatus, out int success);
+            if (success == 0)
+            {
+                string log = GL.GetShaderInfoLog(shader);
+                Console.WriteLine($"Failed to compile shader '{name}': {log}");
+                // FIXME: Return error shader
+                return 0;
+            }
+
+            return shader;
+        }
+
         public static void RecompileAllShaders()
         {
             foreach (var shaderRef in AllShaders)
@@ -141,7 +178,15 @@ namespace DD2470_Clustered_Volume_Renderer
             }
             else
             {
-                int comp = CompileShader($"{Name}_compute", ShaderType.ComputeShader, File.ReadAllText(ComputePath));
+                int comp;
+                if (CommonPath != null)
+                {
+                    comp = CompileShader($"{Name}_compute", ShaderType.ComputeShader, new string[] { File.ReadAllText(CommonPath), File.ReadAllText(ComputePath) });
+                }
+                else
+                {
+                    comp = CompileShader($"{Name}_compute", ShaderType.ComputeShader, File.ReadAllText(ComputePath));
+                }
                 int program = LinkProgram(Name, stackalloc int[1] { comp });
 
                 if (program != 0)

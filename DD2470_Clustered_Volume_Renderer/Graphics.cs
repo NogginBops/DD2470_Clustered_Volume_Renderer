@@ -303,7 +303,7 @@ namespace DD2470_Clustered_Volume_Renderer
         public static void BindImage(int unit, Texture? texture, TextureAccess access)
         {
             ref ImageBinding binding = ref BoundImages[unit];
-            if (binding.Texture != texture &&
+            if (binding.Texture != texture ||
                 binding.Access != access)
             {
                 GL.BindImageTexture(unit, texture?.Handle ?? 0, 0, false, 0, access, texture?.Format ?? 0);

@@ -1,29 +1,37 @@
-#version 460 core
+//#version 460 core
 
 layout(rgba16f, binding=0) uniform image3D img_VolumeScatterAndExtinction;
 
-// FIXME: is this needed for calculating the step length?
-layout(std140, row_major, binding=0) uniform ViewData
+// #include "common.glsl"
+
+// Defined in common.glsl..
+/*layout(std140, row_major, binding=0) uniform ViewData
 {
-    mat4 inverseViewProjectionMatrix;
-    uvec2 screenDimentions;
-};
+    mat4 u_InverseProjectionMatrix;
+    mat4 u_InverseViewMatrix;
+    vec3 u_GridSize;
+    uvec2 u_ScreenDimentions;
+    float u_zNear;
+    float u_zFar;
+};*/
 
 layout(local_size_x=16, local_size_y=9, local_size_z=1) in;
 void main()
 {
     vec4 accumScatteringTransmittance = vec4(0.0, 0.0, 0.0, 1.0);
 
-    // FIXME: get 72 from somewhere?
-    const float VolumeDepth = 96;
-    for (uint depth = 0; depth < VolumeDepth; depth++)
+    for (uint depth = 0; depth < u_GridSize.z; depth++)
     {
         ivec3 imageCoord = ivec3(gl_GlobalInvocationID.xy, depth);
 
+        // FIXME: This there a better way to evaluate this?
+        float stepLen = GetSliceDepth(depth + 1) - GetSliceDepth(depth);
+
         vec4 scatterAndExctinction = imageLoad(img_VolumeScatterAndExtinction, imageCoord);
-        // FIXME: Actually calculate the step length!
-        float stepLen = 10;
         float transmittance = min(exp(-scatterAndExctinction.w * stepLen), 1.0);
+
+        // FIXME: Do this properly?
+        //vec3 transmittanceIntegral = scatterAndExctinction.rgb * (1.0 - transmittance) / min(scatterAndExctinction.w, 0.00001);
 
         accumScatteringTransmittance.rgb += scatterAndExctinction.rgb * accumScatteringTransmittance.a;
         accumScatteringTransmittance.a *= transmittance;
