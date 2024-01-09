@@ -82,9 +82,20 @@ bool testSphereAABBB(uint light, uint clusterIndex)
     return invSqrDist >= invSqrRadius;
 }
 
+bool testSphereVsAABBB(vec3 sphereCenter, float squareRadius, vec3 aabbMin, vec3 aabbMax)
+{
+    // FIXME: Calculate the AABB as center + halfSize
+    vec3 aabbCenter = (aabbMin + aabbMax) * 0.5;
+    vec3 aabbHalfSize = (aabbMax - aabbMin) * 0.5;
+
+    vec3 delta = max(abs(aabbCenter - sphereCenter) - aabbHalfSize, 0);
+    float distanceSquare = dot(delta, delta);
+    return distanceSquare <= squareRadius;
+}
+
 void main()
 {
-    // FIXME: This is the wrong way to do this, because different
+    // This is the wrong way to do this, because different
     // work groups are not synced it's possible for one work group
     // to finish the entire execution before the "first" invocation
     // gets here.
@@ -115,21 +126,32 @@ void main()
 
         shared_Lights[gl_LocalInvocationIndex] = ssbo_lights[lightIndex];
 
-        // FIXME: Which of barrier and memoryBarrierShared is needed?
-        barrier();
         // Make sure that all shared_Lights have been written.
-        //memoryBarrierShared();
+        barrier();
 
         for (uint light = 0; light < threadCount; light++)
         {
             if (batch * threadCount + light >= lightCount)
                 break;
-                
-            if (testSphereAABBB(light, clusterIndex) && visibleLightCount < visibleLightIndices.length())
+
+            if (visibleLightCount < visibleLightIndices.length())
             {
-                visibleLightIndices[visibleLightCount] = batch * threadCount + light;
-                visibleLightCount++;
+                vec3 lightPosition = shared_Lights[light].PositionAndInvSqrRadius.xyz;
+                float squareRadius = shared_Lights[light].ColorAndSqrRadius.w;
+                Cluster cluster = ssbo_clusters[clusterIndex];
+
+                if (testSphereVsAABBB(lightPosition, squareRadius, cluster.Min.xyz, cluster.Max.xyz))
+                {
+                    visibleLightIndices[visibleLightCount] = batch * threadCount + light;
+                    visibleLightCount++;
+                }
             }
+
+            //if (testSphereAABBB(light, clusterIndex) && visibleLightCount < visibleLightIndices.length())
+            //{
+            //    visibleLightIndices[visibleLightCount] = batch * threadCount + light;
+            //    visibleLightCount++;
+            //}
         }
     }
 

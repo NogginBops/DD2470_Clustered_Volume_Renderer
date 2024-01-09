@@ -79,6 +79,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
         public static RenderPath CurrentRenderpath = RenderPath.ClusteredForwardPath;
         public static bool RenderFog = true;
+        public static bool UseIBL = true;
 
         public VAO TheVAO;
 
@@ -245,11 +246,11 @@ namespace DD2470_Clustered_Volume_Renderer
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
 
-            const int NLights = 25;
+            const int NLights = 100;
             Random rand = new Random();
-            Vector3 min = new Vector3(-300, -10, -350);
-            Vector3 max = new Vector3(300, 40, 200);
-            for (int i = 0; i < NLights; i++)
+            Vector3 min = new Vector3(-300, -10, -400);
+            Vector3 max = new Vector3(290, 40, 150);
+            /*for (int i = 0; i < NLights; i++)
             {
                 Lights.Add(
                     new PointLight(
@@ -257,6 +258,23 @@ namespace DD2470_Clustered_Volume_Renderer
                         rand.NextSingle() * 100 + 100f,
                         rand.NextColor4Hue(1, 1),
                         rand.NextSingle() * 1000 + 1f));
+            }*/
+            int SqrtLights = (int)float.Sqrt(NLights);
+            for (int x = 0; x < SqrtLights; x++)
+            {
+                for (int y = 0; y < SqrtLights; y++)
+                {
+                    Vector3 pos = Vector3.Lerp((min.X, 0, min.Z), (max.X, 0, max.Z), (x / (float)(SqrtLights - 1), 0, y / (float)(SqrtLights - 1)));
+
+                    pos.Y = float.Sin((x / (float)(SqrtLights - 1)) * float.Pi) * float.Sin((y / (float)(SqrtLights - 1)) * float.Pi) * 100;
+
+                    Lights.Add(
+                    new PointLight(
+                        pos,
+                        rand.NextSingle() * 100 + 100f,
+                        rand.NextColor4Hue(1, 1),
+                        rand.NextSingle() * 1000 + 1f));
+                }
             }
             // "sun"
             /*Lights.Add(new PointLight(
@@ -265,12 +283,12 @@ namespace DD2470_Clustered_Volume_Renderer
                 Color4.White,
                 1_000_000
                 ));*/
-            Lights.Add(new PointLight(
+            /*Lights.Add(new PointLight(
                 new Vector3(0, 10, -15),
                 100,
                 new Color4(1.0f, 0.2f, 0.2f, 1.0f),
                 100
-                ));
+                ));*/
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
             // 32 x 18 x 72
@@ -374,13 +392,14 @@ namespace DD2470_Clustered_Volume_Renderer
                 }
 
                 ImGui.Checkbox("Render fog", ref RenderFog);
+                ImGui.Checkbox("Use IBL", ref UseIBL);
 
                 ImGui.SeparatorText("Fog settings");
 
-                ImGui.DragFloat("Fog Top Height", ref FogTopHeight);
-                ImGui.DragFloat("Fog Base Height", ref FogBottomHeight);
-                ImGui.DragFloat("Fog Density", ref FogDensity);
-                ImGui.DragFloat("Fog Density Scale", ref FogDensityScale);
+                ImGui.DragFloat("Fog Top Height", ref FogTopHeight, 0.1f);
+                ImGui.DragFloat("Fog Base Height", ref FogBottomHeight, 0.1f);
+                ImGui.DragFloat("Fog Density", ref FogDensity, 0.01f);
+                ImGui.DragFloat("Fog Density Scale", ref FogDensityScale, 0.01f);
 
                 ImGui.SeparatorText("Debug Visualizations");
 
@@ -398,23 +417,23 @@ namespace DD2470_Clustered_Volume_Renderer
                 const float CameraMinY = -80f;
                 const float CameraMaxY = 80f;
 
-                ImGui.SeparatorText("Camera 2");
-                if (ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera2.Transform.UnsafePosition)))
-                    Camera2.Transform.IsDirty = true;
-                ImGui.DragFloat("Rotation X", ref Camera2.XAxisRotation, 0.01f);
-                ImGui.DragFloat("Rotation Y", ref Camera2.YAxisRotation, 0.01f);
-                Camera2.XAxisRotation = MathHelper.Clamp(Camera2.XAxisRotation, CameraMinY * Util.D2R, CameraMaxY * Util.D2R);
-                Camera2.Transform.LocalRotation =
-                    Quaternion.FromAxisAngle(Vector3.UnitY, Camera2.YAxisRotation) *
-                    Quaternion.FromAxisAngle(Vector3.UnitX, Camera2.XAxisRotation);
+                ImGui.SeparatorText("Camera");
+                if (ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera.Transform.UnsafePosition)))
+                    Camera.Transform.IsDirty = true;
+                ImGui.DragFloat("Rotation X", ref Camera.XAxisRotation, 0.01f);
+                ImGui.DragFloat("Rotation Y", ref Camera.YAxisRotation, 0.01f);
+                Camera.XAxisRotation = MathHelper.Clamp(Camera.XAxisRotation, CameraMinY * Util.D2R, CameraMaxY * Util.D2R);
+                Camera.Transform.LocalRotation =
+                    Quaternion.FromAxisAngle(Vector3.UnitY, Camera.YAxisRotation) *
+                    Quaternion.FromAxisAngle(Vector3.UnitX, Camera.XAxisRotation);
 
-                ImGui.DragFloat("Near plane", ref Camera2.NearPlane);
-                if (Camera2.NearPlane < 0.001f)
-                    Camera2.NearPlane = 0.001f;
-                ImGui.DragFloat("Far plane", ref Camera2.FarPlane);
-                if (Camera2.FarPlane <= Camera2.NearPlane + 1)
-                    Camera2.FarPlane = Camera.NearPlane + 1;
-                ImGui.DragFloat("Vertical FoV", ref Camera2.VerticalFov);
+                ImGui.DragFloat("Near plane", ref Camera.NearPlane);
+                if (Camera.NearPlane < 0.001f)
+                    Camera.NearPlane = 0.001f;
+                ImGui.DragFloat("Far plane", ref Camera.FarPlane);
+                if (Camera.FarPlane <= Camera.NearPlane + 1)
+                    Camera.FarPlane = Camera.NearPlane + 1;
+                ImGui.DragFloat("Vertical FoV", ref Camera.VerticalFov, 0.1f);
 
                 ImGui.Separator();
 
@@ -985,7 +1004,7 @@ namespace DD2470_Clustered_Volume_Renderer
                         Graphics.BindShaderStorageBlock(3, LightGridBuffer);
                         Graphics.BindShaderStorageBlock(4, DebugBuffer);
 
-                        GL.ClearNamedBufferData(AtomicIndexCountBuffer.Handle, PixelInternalFormat.R32ui, PixelFormat.UnsignedInt, PixelType.UnsignedInt, 0);
+                        GL.ClearNamedBufferData(AtomicIndexCountBuffer.Handle, PixelInternalFormat.R32ui, PixelFormat.Red, PixelType.UnsignedInt, 0);
 
                         Graphics.BindAtomicCounterBuffer(0, AtomicIndexCountBuffer);
 
@@ -1089,10 +1108,14 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.BindTexture(1, drawcall.NormalTexture);
                     Graphics.BindTexture(2, drawcall.RoughnessMetallicTexture);
 
-                    // FIXME: Get this from a skybox object?
-                    Graphics.BindTexture(5, SkyboxIrradiance);
-                    Graphics.BindTexture(6, SkyboxRadiance);
-                    Graphics.BindTexture(7, BrdfLUT);
+                    GL.Uniform1(23, UseIBL ? 1 : 0);
+                    if (UseIBL)
+                    {
+                        // FIXME: Get this from a skybox object?
+                        Graphics.BindTexture(5, SkyboxIrradiance);
+                        Graphics.BindTexture(6, SkyboxRadiance);
+                        Graphics.BindTexture(7, BrdfLUT);
+                    }
 
                     GL.Uniform1(22, RenderFog ? 1 : 0);
                     if (RenderFog)

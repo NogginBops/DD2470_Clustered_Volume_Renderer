@@ -15,9 +15,18 @@ layout(binding=5) uniform samplerCube tex_Irradiance;
 layout(binding=6) uniform samplerCube tex_Radiance;
 layout(binding=7) uniform sampler2D tex_brdfLUT;
 
+layout(binding=10) uniform sampler3D tex_FogVolume;
+
 layout(location=10) uniform vec3 u_CameraPosition;
+layout(location=11) uniform float u_zNear;
+layout(location=12) uniform float u_zFar;
+layout(location=13) uniform float u_zScale;
+layout(location=14) uniform float u_zBias;
 
 layout(location=15) uniform float u_Exposure;
+layout(location=21) uniform uvec2 u_ScreenSize;
+layout(location=22) uniform bool u_RenderFog;
+layout(location=23) uniform bool u_UseIBL;
 
 const float PI = 3.14159265359;
 
@@ -142,6 +151,26 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 	return (kD * surface.Albedo / PI + specular) * radiance * NdotL;
 }
 
+float linearDepth(float depthSample)
+{
+    float ndcDepth = 2.0 * depthSample - 1.0;
+    float linear = 2.0 * u_zNear * u_zFar / (u_zFar + u_zNear - ndcDepth * (u_zFar - u_zNear));
+    return linear;
+}
+
+vec3 ShadeFogOutScatter(vec3 color)
+{
+	vec2 uv = gl_FragCoord.xy / u_ScreenSize;
+
+	float zTile = max(log2(linearDepth(gl_FragCoord.z)) * (10*u_zScale) + (10*u_zBias), 0.0);
+
+	// FIXME: Possibly a cubic or quadratic interpolation here...
+	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, zTile / 240.0));
+
+	//return vec3(uv, zTile / 240.0);
+	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb;
+}
+
 void main()
 {
 	vec3 normal = normalize(gl_FrontFacing ? v_normal : -v_normal);
@@ -184,6 +213,7 @@ void main()
 		color += ShadePointLight(surface, u_lights[i]);
 	}
 
+	if (u_UseIBL)
 	{
 		vec3 F = FresnelSchlick(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.F0);
 		vec3 kS = F;
@@ -198,6 +228,11 @@ void main()
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
 		color += diffuse * kD + specular;
+	}
+
+	if (u_RenderFog)
+	{
+		color = ShadeFogOutScatter(color);
 	}
 	
 	f_color = vec4(color, 1.0);

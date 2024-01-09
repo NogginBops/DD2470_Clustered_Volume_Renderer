@@ -28,6 +28,7 @@ layout(location=15) uniform float u_Exposure;
 layout(location=20) uniform uvec3 u_ClusterCount;
 layout(location=21) uniform uvec2 u_ScreenSize;
 layout(location=22) uniform bool u_RenderFog;
+layout(location=23) uniform bool u_UseIBL;
 
 const float PI = 3.14159265359;
 
@@ -253,6 +254,7 @@ void main()
 		color += ShadePointLight(surface, ssbo_lights[lightIndex]);
 	}
 
+	if (u_UseIBL)
 	{
 		vec3 F = FresnelSchlick(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.F0);
 		vec3 kS = F;
@@ -266,7 +268,7 @@ void main()
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		//color += diffuse * kD + specular;
+		color += (diffuse * kD + specular) * 0.09;
 	}
 
 	if (u_RenderFog)
