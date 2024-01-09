@@ -120,10 +120,11 @@ void main()
 
         // FIXME: For each light we need to take multiple samples and jitter the froxel sampling position.
         vec3 incoming = vec3(0);
-        for(uint j = 0; j < 1; j++)
+        uint sampleCount = 1;
+        for(uint j = 0; j < sampleCount; j++)
         {
             float viewDepth = 0.0;
-            vec3 world = GetCellPositionWorldSpace(gl_GlobalInvocationID, vec3(0.5), viewDepth);
+            vec3 world = GetCellPositionWorldSpace(gl_GlobalInvocationID, vec3(u_JitterOffsets[j]), viewDepth);
             vec3 lightDirection =  light.PositionAndInvSqrRadius.xyz - world.xyz;
             float distanceSquare = dot(lightDirection, lightDirection);
             float attenuation = CalcPointLightAttenuation6(distanceSquare, light.PositionAndInvSqrRadius.w);
@@ -141,7 +142,7 @@ void main()
 
             incoming += light.ColorAndSqrRadius.rgb * attenuation * opticalDepth * p;
         }
-        incoming /= u_JitterOffsets.length();
+        incoming /= sampleCount;
 
         inscatter += incoming * scatterAndExctinction.rgb;
     }
