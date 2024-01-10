@@ -135,8 +135,8 @@ void main()
             float p = HenyeyGreenstein(cosTheta, emissionAndPhase.w);
 
             // Approximate optical depth to the light. This can be done much better!
-            float opticalDepth = min(exp(-sqrt(distanceSquare) * 0.055), 1.0);
-            opticalDepth = 1;
+            float opticalDepth = min(exp(-sqrt(distanceSquare) * 0.005), 1.0);
+            //opticalDepth = 1;
 
             incoming += light.ColorAndSqrRadius.rgb * attenuation * opticalDepth * p;
         }

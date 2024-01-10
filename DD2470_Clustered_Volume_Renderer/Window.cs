@@ -6,6 +6,7 @@ using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Linq;
@@ -172,9 +173,31 @@ namespace DD2470_Clustered_Volume_Renderer
         public bool ShowClusterDebug;
         public bool ShowLights;
 
+        public const string ViewpointConfigPath = "./viewpoints.txt";
+        public int CurrentViewpoint = -1;
+        public bool EditingViewpointName = false;
+        public bool SaveViewpointModalOpen = false;
+        public string ViewpointName = "";
+        public List<CameraConfig> CameraConfigs = new List<CameraConfig>();
+
+        public const string LightConfigPath = "./lights.txt";
+        public int CurrentLightConfig = -1;
+        public int SelectedLight = -1;
+        public bool EditingLightConfigName = false;
+        public bool RemoveLightConfigModalOpen = false;
+        public int RemoveLightConfigIndex = -1;
+        public bool SaveLightConfigModalOpen = false;
+        public string LightConfigName = "";
+        public List<LightConfig> LightConfigs = new List<LightConfig>();
+
         protected override void OnLoad()
         {
             base.OnLoad();
+
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+
+            CameraConfigs = CameraConfig.ReadConfigurations(ViewpointConfigPath);
+            LightConfigs = LightConfig.ReadConfigurations(LightConfigPath);
 
             VSync = VSyncMode.Off;
 
@@ -406,46 +429,118 @@ namespace DD2470_Clustered_Volume_Renderer
                 ImGui.Checkbox("Render fog", ref RenderFog);
                 ImGui.Checkbox("Use IBL", ref UseIBL);
 
-                ImGui.SeparatorText("Fog settings");
+                if (ImGui.CollapsingHeader("Fog settings", ImGuiTreeNodeFlags.DefaultOpen))
+                {
+                    ImGui.ColorEdit3("Fog albedo", ref VolumeAlbedo.AsNumerics());
+                    ImGui.DragFloat("Fog extinction scale", ref VolumeExtinctionScale, 0.1f, 0, 1);
+                    ImGui.DragFloat("Fog phase g", ref VolumePhaseG, 0.1f, 0.001f, 0.999f);
+                    ImGui.ColorEdit3("Fog emissive", ref VolumeEmissive.AsNumerics());
 
-                ImGui.ColorEdit3("Fog albedo", ref VolumeAlbedo.AsNumerics());
-                ImGui.DragFloat("Fog extinction scale", ref VolumeExtinctionScale, 0.1f, 0, 1);
-                ImGui.DragFloat("Fog phase g", ref VolumePhaseG, 0.1f, 0.001f, 0.999f);
-                ImGui.ColorEdit3("Fog emissive", ref VolumeEmissive.AsNumerics());
+                    ImGui.DragFloat("Fog Height", ref FogHeight, 0.1f);
+                    ImGui.DragFloat("Fog Height Falloff", ref FogHeightFalloff, 0.01f, 0);
+                    ImGui.DragFloat("Fog Density", ref FogDensity, 0.01f, 0, 1);
 
-                ImGui.DragFloat("Fog Height", ref FogHeight, 0.1f);
-                ImGui.DragFloat("Fog Height Falloff", ref FogHeightFalloff, 0.01f, 0);
-                ImGui.DragFloat("Fog Density", ref FogDensity, 0.01f, 0, 1);
+                    ImGui.DragFloat("Fog temporal blend", ref FogHistoryBlendPercent, 1, 0, 100);
+                }
 
-                ImGui.DragFloat("Fog temporal blend", ref FogHistoryBlendPercent, 1, 0, 100);
-
-                ImGui.SeparatorText("Debug Visualizations");
-
-                ImGui.Checkbox("Show second camera frustum", ref ShowCamera2Frustum);
-                ImGui.Checkbox("Show cluster debug", ref ShowClusterDebug);
-                ImGui.Checkbox("Show lights", ref ShowLights);
+                if (ImGui.CollapsingHeader("Debug Visualizations"))
+                {
+                    ImGui.Checkbox("Show second camera frustum", ref ShowCamera2Frustum);
+                    ImGui.Checkbox("Show cluster debug", ref ShowClusterDebug);
+                    ImGui.Checkbox("Show lights", ref ShowLights);
+                }
 
                 const float CameraMinY = -80f;
                 const float CameraMaxY = 80f;
 
-                ImGui.SeparatorText("Camera");
-                if (ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera.Transform.UnsafePosition)))
-                    Camera.Transform.IsDirty = true;
-                ImGui.DragFloat("Rotation X", ref Camera.XAxisRotation, 0.01f);
-                ImGui.DragFloat("Rotation Y", ref Camera.YAxisRotation, 0.01f);
-                Camera.XAxisRotation = MathHelper.Clamp(Camera.XAxisRotation, CameraMinY * Util.D2R, CameraMaxY * Util.D2R);
-                Camera.Transform.LocalRotation =
-                    Quaternion.FromAxisAngle(Vector3.UnitY, Camera.YAxisRotation) *
-                    Quaternion.FromAxisAngle(Vector3.UnitX, Camera.XAxisRotation);
+                if (ImGui.CollapsingHeader("Camera"))
+                {
+                    if (ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera.Transform.UnsafePosition)))
+                        Camera.Transform.IsDirty = true;
+                    ImGui.DragFloat("Rotation X", ref Camera.XAxisRotation, 0.01f);
+                    ImGui.DragFloat("Rotation Y", ref Camera.YAxisRotation, 0.01f);
+                    Camera.XAxisRotation = MathHelper.Clamp(Camera.XAxisRotation, CameraMinY * Util.D2R, CameraMaxY * Util.D2R);
+                    Camera.Transform.LocalRotation =
+                        Quaternion.FromAxisAngle(Vector3.UnitY, Camera.YAxisRotation) *
+                        Quaternion.FromAxisAngle(Vector3.UnitX, Camera.XAxisRotation);
 
-                ImGui.DragFloat("Near plane", ref Camera.NearPlane);
-                if (Camera.NearPlane < 0.001f)
-                    Camera.NearPlane = 0.001f;
-                ImGui.DragFloat("Far plane", ref Camera.FarPlane);
-                if (Camera.FarPlane <= Camera.NearPlane + 1)
-                    Camera.FarPlane = Camera.NearPlane + 1;
-                ImGui.DragFloat("Vertical FoV", ref Camera.VerticalFov, 0.1f);
+                    ImGui.DragFloat("Near plane", ref Camera.NearPlane);
+                    if (Camera.NearPlane < 0.001f)
+                        Camera.NearPlane = 0.001f;
+                    ImGui.DragFloat("Far plane", ref Camera.FarPlane);
+                    if (Camera.FarPlane <= Camera.NearPlane + 1)
+                        Camera.FarPlane = Camera.NearPlane + 1;
+                    ImGui.DragFloat("Vertical FoV", ref Camera.VerticalFov, 0.1f);
 
+                    if (ImGui.BeginListBox("Viewpoints"))
+                    {
+                        int remove_index = -1;
+                        for (int i = 0; i < CameraConfigs.Count; i++)
+                        {
+                            bool is_selected = CurrentViewpoint == i;
+
+                            if (is_selected && EditingViewpointName)
+                            {
+                                if (ImGui.InputText("###edit", ref CameraConfigs[i].Name, 1024, ImGuiInputTextFlags.AutoSelectAll | ImGuiInputTextFlags.EnterReturnsTrue))
+                                {
+                                    EditingViewpointName = false;
+                                }
+                            }
+                            else if (ImGui.Selectable(CameraConfigs[i].Name, is_selected, ImGuiSelectableFlags.AllowDoubleClick | ImGuiSelectableFlags.AllowOverlap))
+                            {
+                                if (ImGui.IsMouseDoubleClicked(0)) EditingViewpointName = true;
+                                else EditingViewpointName = false;
+
+                                CurrentViewpoint = i;
+
+                                CameraConfig.ApplyConfig(Camera, CameraConfigs[i]);
+                            }
+
+                            ImGui.SameLine(ImGui.GetColumnWidth(0) - 10);
+                            if (ImGui.SmallButton($"x###{i}"))
+                            {
+                                remove_index = i;
+                            }
+
+                            if (is_selected)
+                            {
+                                ImGui.SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui.EndListBox();
+
+                        if (remove_index != -1)
+                        {
+                            CameraConfigs.RemoveAt(remove_index);
+                        }
+                    }
+
+                    if (ImGui.Button("Save viewpoint"))
+                    {
+                        ImGui.OpenPopup("Save viewpoint");
+                        ViewpointName = "";
+                        SaveViewpointModalOpen = true;
+                    }
+
+                    if (ImGui.BeginPopupModal("Save viewpoint", ref SaveViewpointModalOpen))
+                    {
+                        ImGui.InputText("Viewpoint name", ref ViewpointName, 1024);
+                        ImGui.SetItemDefaultFocus();
+
+                        bool disable = ViewpointName.Length == 0;
+
+                        ImGui.BeginDisabled(disable);
+                        if (ImGui.Button("Save"))
+                        {
+                            CameraConfig config = new CameraConfig(ViewpointName, Camera);
+                            CameraConfigs.Add(config);
+                            ImGui.CloseCurrentPopup();
+                        }
+                        ImGui.EndDisabled();
+                        ImGui.EndPopup();
+                    }
+                }
+                
                 if (ImGui.CollapsingHeader("Camera2"))
                 {
                     ImGui.PushID("Camera2");
@@ -466,6 +561,179 @@ namespace DD2470_Clustered_Volume_Renderer
                         Camera2.FarPlane = Camera2.NearPlane + 1;
                     ImGui.DragFloat("Vertical FoV", ref Camera2.VerticalFov, 0.1f);
                     ImGui.PopID();
+                }
+
+                if (ImGui.CollapsingHeader("Lights"))
+                {
+                    bool lightListEdited = false;
+
+                    if (ImGui.BeginListBox("Light configs"))
+                    {
+                        for (int i = 0; i < LightConfigs.Count; i++)
+                        {
+                            bool is_selected = CurrentLightConfig == i;
+
+                            if (is_selected && EditingLightConfigName)
+                            {
+                                if (ImGui.InputText("###edit", ref LightConfigs[i].Name, 1024, ImGuiInputTextFlags.AutoSelectAll | ImGuiInputTextFlags.EnterReturnsTrue))
+                                {
+                                    EditingLightConfigName = true;
+                                }
+                            }
+                            else if (ImGui.Selectable(LightConfigs[i].Name, is_selected, ImGuiSelectableFlags.AllowDoubleClick | ImGuiSelectableFlags.AllowOverlap))
+                            {
+                                if (ImGui.IsMouseDoubleClicked(0)) EditingLightConfigName = true;
+                                else EditingLightConfigName = false;
+
+                                CurrentLightConfig = i;
+                                SelectedLight = -1;
+
+                                Lights.Clear();
+                                Lights.AddRange(LightConfigs[i].Lights);
+
+                                lightListEdited = true;
+                            }
+
+                            ImGui.SameLine(ImGui.GetColumnWidth(0) - 10);
+                            if (ImGui.SmallButton($"x###{i}"))
+                            {
+                                ImGui.OpenPopup("Remove Light Config");
+                                RemoveLightConfigModalOpen = true;
+                                RemoveLightConfigIndex = i;
+                            }
+
+                            if (is_selected)
+                                ImGui.SetItemDefaultFocus();
+                        }
+
+                        if (ImGui.BeginPopupModal("Remove Light Config", ref RemoveLightConfigModalOpen))
+                        {
+                            ImGui.Text("Do you really want to remove light config?");
+                            ImGui.Text($"'{LightConfigs[RemoveLightConfigIndex].Name}'");
+
+                            if (ImGui.Button("Yes"))
+                            {
+                                LightConfigs.RemoveAt(RemoveLightConfigIndex);
+                                ImGui.CloseCurrentPopup();
+                            }
+                            ImGui.SameLine();
+                            if (ImGui.Button("No"))
+                            {
+                                ImGui.CloseCurrentPopup();
+                            }
+                        }
+
+                        ImGui.EndListBox();
+                    }
+
+                    if (ImGui.Button("Save light config"))
+                    {
+                        ImGui.OpenPopup("Save light config");
+                        SaveLightConfigModalOpen = true;
+                        LightConfigName = "";
+                    }
+
+                    if (ImGui.BeginPopupModal("Save light config", ref SaveLightConfigModalOpen))
+                    {
+                        ImGui.InputText("Light config name", ref LightConfigName, 1024);
+                        ImGui.SetItemDefaultFocus();
+
+                        bool disable = LightConfigName.Length == 0;
+                        ImGui.BeginDisabled(disable);
+                        if (ImGui.Button("Save"))
+                        {
+                            LightConfig config = new LightConfig(LightConfigName, new List<PointLight>(Lights));
+                            LightConfigs.Add(config);
+                            ImGui.CloseCurrentPopup();
+                        }
+                        ImGui.EndDisabled();
+                        ImGui.EndPopup();
+                    }
+
+                    
+                    if (ImGui.BeginListBox("Lights"))
+                    {
+                        int remove_index = -1;
+                        for (int i = 0; i < Lights.Count; i++)
+                        {
+                            bool is_selected = SelectedLight == i;
+
+                            if (ImGui.Selectable($"Light #{i}", is_selected, ImGuiSelectableFlags.AllowOverlap))
+                            {
+                                SelectedLight = i;
+                            }
+
+                            ImGui.SameLine(ImGui.GetColumnWidth(0) - 10);
+                            if (ImGui.SmallButton($"x###{i}"))
+                            {
+                                remove_index = i;
+                            }
+
+                            if (is_selected)
+                            {
+                                ImGui.SetItemDefaultFocus();
+                            }
+                        }
+
+                        if (remove_index != -1)
+                        {
+                            Lights.RemoveAt(remove_index);
+                            lightListEdited = true;
+
+                            SelectedLight = int.Clamp(SelectedLight, -1, Lights.Count - 1);
+                        }
+
+                        ImGui.EndListBox();
+                    }
+
+                    if (ImGui.SmallButton("+"))
+                    {
+                        Lights.Add(new PointLight(default, 100, Color4.White, 1000));
+                        lightListEdited = true;
+                    }
+
+                    ImGui.SameLine();
+                    if (ImGui.SmallButton("Clear all"))
+                    {
+                        Lights.Clear();
+                        lightListEdited = true;
+                        SelectedLight = -1;
+                    }
+
+                    ImGui.SameLine();
+                    ImGui.BeginDisabled(Lights.Count == 0);
+                    if (ImGui.SmallButton("c"))
+                    {
+                        Lights.Add(Lights[SelectedLight]);
+                        SelectedLight = Lights.Count - 1;
+                    }
+                    ImGui.EndDisabled();
+
+                    ImGui.BeginDisabled(SelectedLight == -1);
+
+                    ImGui.SeparatorText("Light");
+
+                    PointLight dummy = default;
+                    ref PointLight selected = ref (SelectedLight < 0 ? ref dummy : ref CollectionsMarshal.AsSpan(Lights)[SelectedLight]);
+                    float radius = float.Sqrt(selected.SquareRadius);
+                    lightListEdited |= ImGui.DragFloat3("Position###light", ref selected.Position.AsNumerics());
+                    if (ImGui.DragFloat("Radius###light", ref radius))
+                    {
+                        selected.SquareRadius = radius * radius;
+                        selected.InverseSquareRadius = 1 / selected.SquareRadius;
+                        lightListEdited = true;
+                    }
+                    lightListEdited |= ImGui.ColorEdit3("Color", ref selected.Color.AsNumerics(), ImGuiColorEditFlags.HDR | ImGuiColorEditFlags.Float);
+
+                    if (lightListEdited)
+                    {
+                        Buffer.DeleteBuffer(LightBuffer);
+                        LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
+
+                        CurrentLightConfig = -1;
+                    }
+
+                    ImGui.EndDisabled();
                 }
 
                 ImGui.Separator();
@@ -1391,6 +1659,14 @@ namespace DD2470_Clustered_Volume_Renderer
             base.OnMouseWheel(e);
 
             ImGuiController.MouseScroll(e.Offset);
+        }
+
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            base.OnClosing(e);
+
+            CameraConfig.WriteConfigurations(ViewpointConfigPath, CameraConfigs);
+            LightConfig.WriteConfigurations(LightConfigPath, LightConfigs);
         }
     }
 }
