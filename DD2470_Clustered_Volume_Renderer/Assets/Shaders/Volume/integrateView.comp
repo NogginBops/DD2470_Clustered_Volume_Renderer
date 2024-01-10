@@ -1,7 +1,9 @@
 #line 2 1
 //#version 460 core
 
-layout(rgba16f, binding=0) uniform image3D img_VolumeScatterAndExtinction;
+layout(rgba16f, binding=0) uniform readonly image3D img_VolumeInScatterAndExtinction;
+
+layout(rgba16f, binding=1) uniform writeonly image3D img_VolumeIntegratedInScatteringAndTransmittance;
 
 // #include "common.glsl"
 
@@ -26,17 +28,20 @@ void main()
         ivec3 imageCoord = ivec3(gl_GlobalInvocationID.xy, depth);
 
         // FIXME: This there a better way to evaluate this?
-        float stepLen = GetSliceDepth(depth + 1) - GetSliceDepth(depth);
+        // This is backwards because view depth is negative.
+        float stepLen = SliceToViewDepth(depth) - SliceToViewDepth(depth + 1);
 
-        vec4 scatterAndExctinction = imageLoad(img_VolumeScatterAndExtinction, imageCoord);
-        float transmittance = min(exp(-scatterAndExctinction.w * stepLen), 1.0);
+        vec4 inScatterAndExctinction = imageLoad(img_VolumeInScatterAndExtinction, imageCoord);
+        float transmittance = exp(-inScatterAndExctinction.w * stepLen);
 
         // FIXME: Do this properly?
-        //vec3 transmittanceIntegral = scatterAndExctinction.rgb * (1.0 - transmittance) / min(scatterAndExctinction.w, 0.00001);
+        vec3 scatteringIntegratedOverSlice = (inScatterAndExctinction.rgb - inScatterAndExctinction.rgb * transmittance) / max(inScatterAndExctinction.w, 0.00001);
+        //vec3 scatteringIntegratedOverSlice = inScatterAndExctinction.rgb * (1.0 - transmittance) / min(inScatterAndExctinction.w, 0.00001);
 
-        accumScatteringTransmittance.rgb += scatterAndExctinction.rgb * accumScatteringTransmittance.a;
+        accumScatteringTransmittance.rgb += scatteringIntegratedOverSlice * accumScatteringTransmittance.a;
+        //accumScatteringTransmittance.rgb += inScatterAndExctinction.rgb * accumScatteringTransmittance.a;
         accumScatteringTransmittance.a *= transmittance;
 
-        imageStore(img_VolumeScatterAndExtinction, imageCoord, accumScatteringTransmittance);
+        imageStore(img_VolumeIntegratedInScatteringAndTransmittance, imageCoord, accumScatteringTransmittance);
     }
 }

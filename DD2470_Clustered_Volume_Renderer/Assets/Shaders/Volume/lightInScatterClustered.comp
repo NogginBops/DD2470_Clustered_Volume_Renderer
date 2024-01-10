@@ -106,6 +106,10 @@ void main()
     vec4 scatterAndAbsorbtion = imageLoad(img_VolumeScatterAndExtinction, imageCoord);
     vec4 emissionAndPhase = imageLoad(img_VolumeEmissionAndPhase, imageCoord);
 
+    uint clusterIndex = CellPositionToCusterIndex(gl_GlobalInvocationID);
+    uint lightOffset = ssbo_lightGrid[clusterIndex].Offset;
+    uint lightCount = ssbo_lightGrid[clusterIndex].Count;
+
     vec3 historyUV = GetVolumeUV(GetCellPositionWorldSpace(gl_GlobalInvocationID, vec3(0.5)), u_PrevViewProjectionMatrix);
     float historyAlpha = u_HistoryBlend;
     uint sampleCount = 1;
@@ -116,9 +120,10 @@ void main()
     }
 
     vec3 inscatter = vec3(0);
-    for (uint i = 0; i < ssbo_lights.length(); i++)
+    for (uint i = 0; i < lightCount; i++)
     {
-        PointLight light = ssbo_lights[i];
+        uint lightIndex = ssbo_lightIndexList[i];
+        PointLight light = ssbo_lights[lightIndex];
 
         vec3 incoming = vec3(0);
         for(uint j = 0; j < sampleCount; j++)

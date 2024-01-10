@@ -47,6 +47,8 @@ namespace DD2470_Clustered_Volume_Renderer
         public Matrix4 InverseProjectionMatrix;
         public Matrix4 InverseViewMatrix;
         public Matrix4 PrevViewProjectionMatrix;
+        public Vector4 VolumeAlbedoAndExtinctionScale;
+        public Vector4 VolumeEmissiveAndPhase;
         public Vector4 JitterOffsets0;
         public Vector4 JitterOffsets1;
         public Vector4 JitterOffsets2;
@@ -61,6 +63,9 @@ namespace DD2470_Clustered_Volume_Renderer
         public Vector2i ScreenSize;
         public float NearZ;
         public float FarZ;
+        public float ScaleZ;
+        public float BiasZ;
+        public float HistoryBlend;
     }
 
     enum RenderPath
@@ -136,11 +141,16 @@ namespace DD2470_Clustered_Volume_Renderer
         public Material VolumeIntegrationPass;
         public Buffer VolumeViewDataBuffer;
 
-        public float FogBottomHeight = -10;
-        public float FogTopHeight = 100;
+        public float FogHeight = 0;
         // FIXME: Better names...
-        public float FogDensity = 1;
-        public float FogDensityScale = 0.5f;
+        public float FogHeightFalloff = 0.02f;
+        public float FogDensity = 0.02f;
+
+        public float FogHistoryBlendPercent = 7;
+        public Vector3 VolumeAlbedo = new Vector3(1, 1, 1);
+        public float VolumeExtinctionScale = 1;
+        public Vector3 VolumeEmissive = new Vector3(0, 0, 0);
+        public float VolumePhaseG = 0.2f;
 
         public Camera Camera;
         public Camera Camera2;
@@ -158,8 +168,6 @@ namespace DD2470_Clustered_Volume_Renderer
         public bool ShowCamera2Frustum;
         public bool ShowClusterDebug;
         public bool ShowLights;
-
-        public float NearClusterDepth = 0.5f;
 
         protected override void OnLoad()
         {
@@ -246,7 +254,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
 
-            const int NLights = 100;
+            const int NLights = 1000;
             Random rand = new Random();
             Vector3 min = new Vector3(-300, -10, -400);
             Vector3 max = new Vector3(290, 40, 150);
@@ -259,21 +267,21 @@ namespace DD2470_Clustered_Volume_Renderer
                         rand.NextColor4Hue(1, 1),
                         rand.NextSingle() * 1000 + 1f));
             }*/
-            int SqrtLights = (int)float.Sqrt(NLights);
+            int SqrtLights = (int)20;
             for (int x = 0; x < SqrtLights; x++)
             {
                 for (int y = 0; y < SqrtLights; y++)
                 {
                     Vector3 pos = Vector3.Lerp((min.X, 0, min.Z), (max.X, 0, max.Z), (x / (float)(SqrtLights - 1), 0, y / (float)(SqrtLights - 1)));
 
-                    pos.Y = float.Sin((x / (float)(SqrtLights - 1)) * float.Pi) * float.Sin((y / (float)(SqrtLights - 1)) * float.Pi) * 100;
+                    pos.Y = float.Sin((x / (float)(SqrtLights - 1)) * float.Pi) * float.Sin((y / (float)(SqrtLights - 1)) * float.Pi) * 100 - 15;
 
                     Lights.Add(
-                    new PointLight(
-                        pos,
-                        rand.NextSingle() * 100 + 100f,
-                        rand.NextColor4Hue(1, 1),
-                        rand.NextSingle() * 1000 + 1f));
+                        new PointLight(
+                            pos,
+                            rand.NextSingle() * 100 + 100f,
+                            rand.NextColor4Hue(1, 1),
+                            rand.NextSingle() * 1000 + 1f));
                 }
             }
             // "sun"
@@ -305,7 +313,8 @@ namespace DD2470_Clustered_Volume_Renderer
             Shader volumeDensityTransfer = Shader.CreateCompute("Density Transfer", "./Shaders/Volume/densityTransfer.comp", "./Shaders/Volume/common.glsl");
             VolumeDensityTransferPass = new Material(volumeDensityTransfer, null, volumeDensityTransfer, null);
             Shader volumeLightInScatter = Shader.CreateCompute("In-Scatter", "./Shaders/Volume/lightInScatter.comp", "./Shaders/Volume/common.glsl");
-            VolumeDensityInScatterPass = new Material(volumeLightInScatter, null, volumeLightInScatter, null);
+            Shader volumeLightInScatterClustered = Shader.CreateCompute("In-Scatter Clustered", "./Shaders/Volume/lightInScatterClustered.comp", "./Shaders/Volume/common.glsl");
+            VolumeDensityInScatterPass = new Material(volumeLightInScatter, null, volumeLightInScatterClustered, null);
             Shader volumeIntegration = Shader.CreateCompute("Volume Integration", "./Shaders/Volume/integrateView.comp", "./Shaders/Volume/common.glsl");
             VolumeIntegrationPass = new Material(volumeIntegration, null, volumeIntegration, null);
 
@@ -396,23 +405,22 @@ namespace DD2470_Clustered_Volume_Renderer
 
                 ImGui.SeparatorText("Fog settings");
 
-                ImGui.DragFloat("Fog Top Height", ref FogTopHeight, 0.1f);
-                ImGui.DragFloat("Fog Base Height", ref FogBottomHeight, 0.1f);
-                ImGui.DragFloat("Fog Density", ref FogDensity, 0.01f);
-                ImGui.DragFloat("Fog Density Scale", ref FogDensityScale, 0.01f);
+                ImGui.ColorEdit3("Fog albedo", ref VolumeAlbedo.AsNumerics());
+                ImGui.DragFloat("Fog extinction scale", ref VolumeExtinctionScale, 0.1f, 0, 1);
+                ImGui.DragFloat("Fog phase g", ref VolumePhaseG, 0.1f, 0.001f, 0.999f);
+                ImGui.ColorEdit3("Fog emissive", ref VolumeEmissive.AsNumerics());
+
+                ImGui.DragFloat("Fog Height", ref FogHeight, 0.1f);
+                ImGui.DragFloat("Fog Height Falloff", ref FogHeightFalloff, 0.01f, 0);
+                ImGui.DragFloat("Fog Density", ref FogDensity, 0.01f, 0, 1);
+
+                ImGui.DragFloat("Fog temporal blend", ref FogHistoryBlendPercent, 1, 0, 100);
 
                 ImGui.SeparatorText("Debug Visualizations");
 
                 ImGui.Checkbox("Show second camera frustum", ref ShowCamera2Frustum);
                 ImGui.Checkbox("Show cluster debug", ref ShowClusterDebug);
                 ImGui.Checkbox("Show lights", ref ShowLights);
-
-                ImGui.SeparatorText("Cluster settings");
-
-                if (ImGui.DragFloat("Near cluster depth", ref NearClusterDepth, 1, 0.001f, Camera.FarPlane - Camera.NearPlane, null, ImGuiSliderFlags.Logarithmic))
-                {
-                    NearClusterDepth = float.Clamp(NearClusterDepth, 0.001f, Camera.FarPlane - Camera.NearPlane);
-                }
 
                 const float CameraMinY = -80f;
                 const float CameraMaxY = 80f;
@@ -602,6 +610,8 @@ namespace DD2470_Clustered_Volume_Renderer
             viewData.InverseProjectionMatrix = Matrix4.Invert(projectionMatrix);
             viewData.InverseViewMatrix = Matrix4.Invert(viewMatrix);
             viewData.PrevViewProjectionMatrix = PrevVPMatrix;
+            viewData.VolumeAlbedoAndExtinctionScale = new Vector4(VolumeAlbedo, VolumeExtinctionScale);
+            viewData.VolumeEmissiveAndPhase = new Vector4(VolumeEmissive, VolumePhaseG);
             Unsafe.SkipInit(out viewData.JitterOffsets0);
             Unsafe.SkipInit(out viewData.JitterOffsets1);
             Unsafe.SkipInit(out viewData.JitterOffsets2);
@@ -618,7 +628,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 jitter.Y = TemporalHalton(FrameNumber - i, 3);
                 jitter.Z = TemporalHalton(FrameNumber - i, 5);
 
-                jitter = new Vector4(0.5f, 0.5f, 0.5f, 1.0f);
+                //jitter = new Vector4(0.5f, 0.5f, 0.5f, 1.0f);
             }
             viewData.GridSize = new Vector4(VolumeFroxels, 0);
             viewData.CellsPerCluster = new Vector4i(FroxelsPerCluster, 0);
@@ -626,6 +636,9 @@ namespace DD2470_Clustered_Volume_Renderer
             viewData.ScreenSize = FramebufferSize;
             viewData.NearZ = Camera.NearPlane;
             viewData.FarZ = Camera.FarPlane;
+            viewData.ScaleZ = ClusterCounts.Z / float.Log2(Camera.FarPlane / Camera.NearPlane);
+            viewData.BiasZ = - ClusterCounts.Z * float.Log2(Camera.NearPlane) / float.Log2(Camera.FarPlane / Camera.NearPlane);
+            viewData.HistoryBlend = FogHistoryBlendPercent / 100.0f;
             Buffer.UpdateSubData<ViewData>(VolumeViewDataBuffer, stackalloc ViewData[1] { viewData }, 0);
 
             Frustum frustum = Frustum.FromCamera(Camera);
@@ -926,60 +939,63 @@ namespace DD2470_Clustered_Volume_Renderer
 
             if (CurrentRenderpath == RenderPath.ClusteredForwardPath)
             {
-                GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Hi-Z");
+                if (false)
                 {
-                    Graphics.UseShader(HiZDepthCopy.Shader);
-
-                    int mipWidth = HDRFramebuffer.DepthStencilAttachment.Width;
-                    int mipHeight = HDRFramebuffer.DepthStencilAttachment.Height;
-
-                    GL.Disable(EnableCap.DepthTest);
-                    Graphics.SetDepthWrite(false);
-                    Graphics.SetColorWrite(ColorChannels.All);
-
-                    // Copy over the depth data...
-                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, HiZMipFramebuffer.Handle);
-                    GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, 0);
-                    GL.Viewport(0, 0, HiZMipFramebuffer.ColorAttachment0.Width, HiZMipFramebuffer.ColorAttachment0.Height);
-                    Graphics.BindTexture(0, HDRFramebuffer.DepthStencilAttachment);
-                    GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
-
-                    Graphics.UseShader(HiZPass.Shader);
-
-                    for (int i = 1; i < HiZMipFramebuffer.ColorAttachment0.MipCount; i++)
+                    GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Hi-Z");
                     {
-                        mipWidth = Math.Max(1, mipWidth / 2);
-                        mipHeight = Math.Max(1, mipHeight / 2);
+                        Graphics.UseShader(HiZDepthCopy.Shader);
 
-                        int layerToRenderTo = i;
-                        int layerToSampleFrom = layerToRenderTo - 1;
+                        int mipWidth = HDRFramebuffer.DepthStencilAttachment.Width;
+                        int mipHeight = HDRFramebuffer.DepthStencilAttachment.Height;
 
-                        GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, layerToRenderTo);
-                        GL.Viewport(0, 0, mipWidth, mipHeight);
+                        GL.Disable(EnableCap.DepthTest);
+                        Graphics.SetDepthWrite(false);
+                        Graphics.SetColorWrite(ColorChannels.All);
 
-                        var status = GL.CheckNamedFramebufferStatus(HiZMipFramebuffer.Handle, FramebufferTarget.Framebuffer);
-                        if (status != FramebufferStatus.FramebufferComplete)
+                        // Copy over the depth data...
+                        GL.BindFramebuffer(FramebufferTarget.Framebuffer, HiZMipFramebuffer.Handle);
+                        GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, 0);
+                        GL.Viewport(0, 0, HiZMipFramebuffer.ColorAttachment0.Width, HiZMipFramebuffer.ColorAttachment0.Height);
+                        Graphics.BindTexture(0, HDRFramebuffer.DepthStencilAttachment);
+                        GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+
+                        Graphics.UseShader(HiZPass.Shader);
+
+                        for (int i = 1; i < HiZMipFramebuffer.ColorAttachment0.MipCount; i++)
                         {
-                            Console.WriteLine($"Incomplete framebuffer: {status}");
+                            mipWidth = Math.Max(1, mipWidth / 2);
+                            mipHeight = Math.Max(1, mipHeight / 2);
+
+                            int layerToRenderTo = i;
+                            int layerToSampleFrom = layerToRenderTo - 1;
+
+                            GL.NamedFramebufferTexture(HiZMipFramebuffer.Handle, FramebufferAttachment.ColorAttachment0, HiZMipFramebuffer.ColorAttachment0.Handle, layerToRenderTo);
+                            GL.Viewport(0, 0, mipWidth, mipHeight);
+
+                            var status = GL.CheckNamedFramebufferStatus(HiZMipFramebuffer.Handle, FramebufferTarget.Framebuffer);
+                            if (status != FramebufferStatus.FramebufferComplete)
+                            {
+                                Console.WriteLine($"Incomplete framebuffer: {status}");
+                            }
+
+                            Graphics.BindTexture(0, HiZMipFramebuffer.ColorAttachment0);
+                            GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, layerToSampleFrom);
+                            GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, layerToSampleFrom);
+
+                            GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
                         }
 
-                        Graphics.BindTexture(0, HiZMipFramebuffer.ColorAttachment0);
-                        GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, layerToSampleFrom);
-                        GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, layerToSampleFrom);
+                        GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, 0);
+                        GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, 1000);
 
-                        GL.DrawArrays(PrimitiveType.Triangles, 0, 3);
+                        GL.Enable(EnableCap.DepthTest);
+
+                        GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
+                        GL.Viewport(0, 0, HDRFramebuffer.ColorAttachment0.Width, HDRFramebuffer.ColorAttachment0.Height);
                     }
-
-                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureBaseLevel, 0);
-                    GL.TextureParameter(HiZMipFramebuffer.ColorAttachment0.Handle, TextureParameterName.TextureMaxLevel, 1000);
-
-                    GL.Enable(EnableCap.DepthTest);
-
-                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, HDRFramebuffer.Handle);
-                    GL.Viewport(0, 0, HDRFramebuffer.ColorAttachment0.Width, HDRFramebuffer.ColorAttachment0.Height);
+                    GL.PopDebugGroup();
                 }
-                GL.PopDebugGroup();
-
+                
                 GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 1, -1, "Clustering");
                 {
                     {
@@ -1038,10 +1054,9 @@ namespace DD2470_Clustered_Volume_Renderer
 
                         Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
 
-                        GL.Uniform1(0, FogTopHeight);
-                        GL.Uniform1(1, FogBottomHeight);
-                        GL.Uniform1(2, FogDensity);
-                        GL.Uniform1(3, FogDensityScale);
+                        GL.Uniform1(1, FogHeight);
+                        GL.Uniform1(2, FogHeightFalloff);
+                        GL.Uniform1(3, FogDensity);
 
                         GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
 
@@ -1049,11 +1064,11 @@ namespace DD2470_Clustered_Volume_Renderer
                     }
 
                     {
-                        Graphics.UseShader(VolumeDensityInScatterPass.Shader);
+                        Graphics.UseShader(VolumeDensityInScatterPass.GetShader(CurrentRenderpath));
 
                         Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.ReadWrite);
                         Graphics.BindImage(1, VolumeEmissionPhaseTexture, TextureAccess.ReadWrite);
-                        Graphics.BindImage(2, VolumeDataHistory, TextureAccess.ReadOnly);
+                        Graphics.BindTexture(1, VolumeDataHistory);
 
                         Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
 
@@ -1073,8 +1088,9 @@ namespace DD2470_Clustered_Volume_Renderer
                     {
                         Graphics.UseShader(VolumeIntegrationPass.Shader);
 
-                        // FIXME: Do we want a separate texture for this?
-                        Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.ReadWrite);
+                        // Read from the in-scatter texture and write integrated data to VolumeEmissionPhaseTexture
+                        Graphics.BindImage(0, VolumeScatterExtinctionTexture, TextureAccess.ReadOnly);
+                        Graphics.BindImage(1, VolumeEmissionPhaseTexture, TextureAccess.WriteOnly);
 
                         Graphics.BindUniformBuffer(0, VolumeViewDataBuffer);
 
@@ -1120,7 +1136,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     GL.Uniform1(22, RenderFog ? 1 : 0);
                     if (RenderFog)
                     {
-                        Graphics.BindTexture(10, VolumeScatterExtinctionTexture);
+                        Graphics.BindTexture(10, VolumeEmissionPhaseTexture);
                     }
 
                     Graphics.BindShaderStorageBlock(0, LightBuffer);
@@ -1169,7 +1185,7 @@ namespace DD2470_Clustered_Volume_Renderer
                     GL.Uniform1(22, RenderFog ? 1 : 0);
                     if (RenderFog)
                     {
-                        Graphics.BindTexture(10, VolumeScatterExtinctionTexture);
+                        Graphics.BindTexture(10, VolumeEmissionPhaseTexture);
                     }
 
                     Graphics.BindVertexAttributeBuffer(TheVAO, 0, CubeMesh.PositionBuffer, 0, sizeof(Vector3h));
@@ -1302,7 +1318,7 @@ namespace DD2470_Clustered_Volume_Renderer
 
             PrevVPMatrix = vp;
             // Swap history with current texture
-            //(VolumeScatterExtinctionTexture, VolumeDataHistory) = (VolumeDataHistory, VolumeScatterExtinctionTexture);
+            (VolumeScatterExtinctionTexture, VolumeDataHistory) = (VolumeDataHistory, VolumeScatterExtinctionTexture);
 
             long end = Stopwatch.GetTimestamp();
             totalTime = Stopwatch.GetElapsedTime(start, end).TotalMilliseconds;

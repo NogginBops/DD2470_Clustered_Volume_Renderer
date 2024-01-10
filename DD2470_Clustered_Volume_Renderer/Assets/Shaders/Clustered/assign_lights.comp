@@ -134,7 +134,7 @@ void main()
             if (batch * threadCount + light >= lightCount)
                 break;
 
-            if (visibleLightCount < visibleLightIndices.length())
+            /*if (visibleLightCount < visibleLightIndices.length())
             {
                 vec3 lightPosition = shared_Lights[light].PositionAndInvSqrRadius.xyz;
                 float squareRadius = shared_Lights[light].ColorAndSqrRadius.w;
@@ -145,13 +145,13 @@ void main()
                     visibleLightIndices[visibleLightCount] = batch * threadCount + light;
                     visibleLightCount++;
                 }
-            }
+            }*/
 
-            //if (testSphereAABBB(light, clusterIndex) && visibleLightCount < visibleLightIndices.length())
-            //{
-            //    visibleLightIndices[visibleLightCount] = batch * threadCount + light;
-            //    visibleLightCount++;
-            //}
+            if (testSphereAABBB(light, clusterIndex) && visibleLightCount < visibleLightIndices.length())
+            {
+                visibleLightIndices[visibleLightCount] = batch * threadCount + light;
+                visibleLightCount++;
+            }
         }
     }
 

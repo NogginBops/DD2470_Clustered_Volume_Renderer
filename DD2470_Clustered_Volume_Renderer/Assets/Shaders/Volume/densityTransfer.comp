@@ -34,45 +34,22 @@ void main()
 {
     ivec3 imageCoord = ivec3(gl_GlobalInvocationID);
 
-    float density = 0.0;
-    vec3 scatter = vec3(0);
-    float g = 0;
-    vec3 emission = vec3(0);
+    float viewDepth = 0.0;
+    vec3 world = GetCellPositionWorldSpace(gl_GlobalInvocationID, vec3(0.5), viewDepth);
 
-    for (uint i = 0; i < u_JitterOffsets.length(); i++)
-    {
-        float viewDepth = 0.0;
-        vec3 world = GetCellPositionWorldSpace(gl_GlobalInvocationID, vec3(0.5), viewDepth);
+    float fogHeight = max(world.y - FogBottomHeight, 0.0);
+    float fogDensity = FogDensityScale * exp(-FogDensityFactor * fogHeight);
 
-        float fogDensity = FogDensityScale * exp(-FogDensityFactor * ((world.y - FogBottomHeight) / (FogTopHeight - FogBottomHeight)));
+    //fogDensity = clamp(fogDensity, 0.0, 1.0);
 
-        fogDensity = clamp(fogDensity, 0.00001, FogDensityScale);
-
-        density += fogDensity;
-        scatter += vec3(1, 1, 1) * fogDensity;
-        g += clamp(1 - fogDensity, 0.01, 0.99);
-        //g += 0.8
-
-        // FIXME: Emission?
-        if (world.y < FogBottomHeight && world.x < 0 && world.z < 0)
-        {
-            //scatter += vec3(0.7, 0.7, 0.7);
-            //density += 100 * fogDensity;
-            //g += 0.1;
-        }
-        else
-        {
-            //scatter += vec3(0, 0, 0);
-            //density += 0;
-            //g += 0.999;
-        }
-    }
-    density  /= u_JitterOffsets.length();
-    scatter  /= u_JitterOffsets.length();
-    g        /= u_JitterOffsets.length();
-    emission /= u_JitterOffsets.length();
+    float extinction = max(0.0, fogDensity * 0.24 * u_GlobalAlbedoAndGlobalExtinctionScale.w);
+    vec3 scatter = u_GlobalAlbedoAndGlobalExtinctionScale.rgb * extinction;
+    float absorbtion = max(0.0, extinction - luminance(scatter));
+    //absorbtion = 0.0005;
+    vec3 emission = u_GlobalEmissiveAndGlobalPhaseG.rgb * extinction;
+    float g = u_GlobalEmissiveAndGlobalPhaseG.w;
 
     // FIXME: density multiplier??
-    imageStore(img_VolumeScatterAndExtinction, imageCoord, vec4(scatter, density));
+    imageStore(img_VolumeScatterAndExtinction, imageCoord, vec4(scatter, absorbtion));
     imageStore(img_VolumeEmissionAndPhase, imageCoord, vec4(vec3(emission), g));
 }

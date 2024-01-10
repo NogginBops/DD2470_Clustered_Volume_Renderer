@@ -192,6 +192,7 @@ vec3 ShadeFogOutScatter(vec3 color)
 {
 	vec2 uv = gl_FragCoord.xy / u_ScreenSize;
 
+	// FIXME: Why is this log2???
 	float zTile = max(log2(linearDepth(gl_FragCoord.z)) * (10*u_zScale) + (10*u_zBias), 0.0);
 
 	// FIXME: Possibly a cubic or quadratic interpolation here...
@@ -237,6 +238,7 @@ void main()
 	surface.ViewDirection = normalize(u_CameraPosition - v_position);
 	surface.ReflectionDirection = reflect(-surface.ViewDirection, surface.Normal);
 	
+	// FIXME: Why is this log2?
 	uint zTile = uint(max(log2(linearDepth(gl_FragCoord.z)) * u_zScale + u_zBias, 0.0));
 	uvec3 tile = uvec3(gl_FragCoord.xy / vec2(1600/16, 900/9), zTile);
 	uint tileIndex = tile.x + u_ClusterCount.x * tile.y + (u_ClusterCount.x * u_ClusterCount.y) * tile.z;
@@ -268,7 +270,7 @@ void main()
 		vec2 brdf  = texture(tex_brdfLUT, vec2(max(dot(surface.Normal, surface.ViewDirection), 0.0), surface.Roughness)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 
-		color += (diffuse * kD + specular) * 0.09;
+		color += (diffuse * kD + specular);
 	}
 
 	if (u_RenderFog)

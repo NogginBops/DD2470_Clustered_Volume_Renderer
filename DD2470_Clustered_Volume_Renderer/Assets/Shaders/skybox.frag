@@ -20,8 +20,7 @@ vec3 ShadeFogOutScatter(vec3 color)
 
 	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, 1));
 
-	//return color * exp(-linearDepth01(gl_FragCoord.z)*20);
-	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb;
+	return color * clamp(outScatterAndTransmittance.aaa, 0.0, 1.0) + outScatterAndTransmittance.rgb;
 }
 
 void main()
