@@ -22,7 +22,7 @@ layout(location = 3) uniform mat4 u_inv_vp;
 void main()
 {
 	float rad = sqrt(1 / in_lightPosInvSqrRadius.w);
-	rad = sqrt(rad);
+	//rad = sqrt(rad);
 	vec4 p = vec4(in_position * rad + in_lightPosInvSqrRadius.xyz, 1.0) * u_inv_vp;
 	p /= p.w;
 

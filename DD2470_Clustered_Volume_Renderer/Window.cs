@@ -7,6 +7,7 @@ using OpenTK.Windowing.GraphicsLibraryFramework;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Contracts;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -37,6 +38,8 @@ namespace DD2470_Clustered_Volume_Renderer
     internal struct ProjectionData
     {
         public Matrix4 InverseProjection;
+        public Matrix4 ViewMatrix;
+        public Vector4i GridSize;
         public Vector2i ScreenSize;
         public float NearZ;
         public float FarZ;
@@ -254,11 +257,11 @@ namespace DD2470_Clustered_Volume_Renderer
 
             RenderEntities = new List<EntityRenderData>(Entities.Where(static e => e.Mesh != null).Select(static e => new EntityRenderData() { Entity = e }));
 
-            const int NLights = 1000;
+            const int NLights = 400;
             Random rand = new Random();
             Vector3 min = new Vector3(-300, -10, -400);
             Vector3 max = new Vector3(290, 40, 150);
-            /*for (int i = 0; i < NLights; i++)
+            for (int i = 0; i < NLights; i++)
             {
                 Lights.Add(
                     new PointLight(
@@ -266,8 +269,8 @@ namespace DD2470_Clustered_Volume_Renderer
                         rand.NextSingle() * 100 + 100f,
                         rand.NextColor4Hue(1, 1),
                         rand.NextSingle() * 1000 + 1f));
-            }*/
-            int SqrtLights = (int)20;
+            }
+            int SqrtLights = (int)0;
             for (int x = 0; x < SqrtLights; x++)
             {
                 for (int y = 0; y < SqrtLights; y++)
@@ -279,9 +282,9 @@ namespace DD2470_Clustered_Volume_Renderer
                     Lights.Add(
                         new PointLight(
                             pos,
-                            rand.NextSingle() * 100 + 100f,
+                            rand.NextSingle() * 100 + 50f,
                             rand.NextColor4Hue(1, 1),
-                            rand.NextSingle() * 1000 + 1f));
+                            rand.NextSingle() * 30000 + 1000f));
                 }
             }
             // "sun"
@@ -291,12 +294,12 @@ namespace DD2470_Clustered_Volume_Renderer
                 Color4.White,
                 1_000_000
                 ));*/
-            /*Lights.Add(new PointLight(
+            Lights.Add(new PointLight(
                 new Vector3(0, 10, -15),
                 100,
                 new Color4(1.0f, 0.2f, 0.2f, 1.0f),
-                100
-                ));*/
+                10000
+                ));
             LightBuffer = Buffer.CreateBuffer("Point Light buffer", Lights, BufferStorageFlags.None);
 
             // 32 x 18 x 72
@@ -442,6 +445,28 @@ namespace DD2470_Clustered_Volume_Renderer
                 if (Camera.FarPlane <= Camera.NearPlane + 1)
                     Camera.FarPlane = Camera.NearPlane + 1;
                 ImGui.DragFloat("Vertical FoV", ref Camera.VerticalFov, 0.1f);
+
+                if (ImGui.CollapsingHeader("Camera2"))
+                {
+                    ImGui.PushID("Camera2");
+                    if (ImGui.DragFloat3("Position", ref Unsafe.As<Vector3, System.Numerics.Vector3>(ref Camera2.Transform.UnsafePosition)))
+                        Camera2.Transform.IsDirty = true;
+                    ImGui.DragFloat("Rotation X", ref Camera2.XAxisRotation, 0.01f);
+                    ImGui.DragFloat("Rotation Y", ref Camera2.YAxisRotation, 0.01f);
+                    Camera2.XAxisRotation = MathHelper.Clamp(Camera2.XAxisRotation, CameraMinY * Util.D2R, CameraMaxY * Util.D2R);
+                    Camera2.Transform.LocalRotation =
+                        Quaternion.FromAxisAngle(Vector3.UnitY, Camera2.YAxisRotation) *
+                        Quaternion.FromAxisAngle(Vector3.UnitX, Camera2.XAxisRotation);
+
+                    ImGui.DragFloat("Near plane", ref Camera2.NearPlane);
+                    if (Camera2.NearPlane < 0.001f)
+                        Camera2.NearPlane = 0.001f;
+                    ImGui.DragFloat("Far plane", ref Camera2.FarPlane);
+                    if (Camera2.FarPlane <= Camera2.NearPlane + 1)
+                        Camera2.FarPlane = Camera2.NearPlane + 1;
+                    ImGui.DragFloat("Vertical FoV", ref Camera2.VerticalFov, 0.1f);
+                    ImGui.PopID();
+                }
 
                 ImGui.Separator();
 
@@ -600,7 +625,10 @@ namespace DD2470_Clustered_Volume_Renderer
             Matrix4 vp = viewMatrix * projectionMatrix;
 
             ProjectionData projectionData;
+            //projectionData.InverseProjection = Matrix4.Invert(Camera.ProjectionMatrix);
             projectionData.InverseProjection = Matrix4.Invert(Camera.ProjectionMatrix);
+            projectionData.ViewMatrix = Camera.Transform.ParentToLocal;
+            projectionData.GridSize = new Vector4i(ClusterCounts, 0);
             projectionData.ScreenSize = FramebufferSize;
             projectionData.NearZ = Camera.NearPlane;
             projectionData.FarZ = Camera.FarPlane;
@@ -1005,12 +1033,17 @@ namespace DD2470_Clustered_Volume_Renderer
 
                         GL.MemoryBarrier(MemoryBarrierFlags.AllBarrierBits);
 
-                        // FIXME: Some way to parameterize the number of clusters...
-                        GL.DispatchCompute(ClusterCounts.X, ClusterCounts.Y, ClusterCounts.Z);
+                        // This compute shader will mask out any invocations that are out of bounds.
+                        GL.DispatchCompute(DivRoundUp(ClusterCounts.X, 4), DivRoundUp(ClusterCounts.Y, 4), DivRoundUp(ClusterCounts.Z, 2));
+
+                        [Pure]
+                        static int DivRoundUp(int num, int denom) => (num + denom - 1) / denom;
                     }
 
                     {
                         Graphics.UseShader(LightAssignmentPass.Shader);
+
+                        Graphics.BindUniformBuffer(1, ProjectionDataBuffer);
 
                         // FIXME: this is unecessary?
                         Graphics.BindShaderStorageBlock(0, ClusterData);
@@ -1023,9 +1056,6 @@ namespace DD2470_Clustered_Volume_Renderer
                         GL.ClearNamedBufferData(AtomicIndexCountBuffer.Handle, PixelInternalFormat.R32ui, PixelFormat.Red, PixelType.UnsignedInt, 0);
 
                         Graphics.BindAtomicCounterBuffer(0, AtomicIndexCountBuffer);
-
-                        // FIXME: Easy way to switch between camera and camera2 for this...
-                        GL.UniformMatrix4(0, true, ref viewMatrix);
 
                         // Sync the AABB values.
                         GL.MemoryBarrier(MemoryBarrierFlags.ShaderStorageBarrierBit);
@@ -1247,8 +1277,8 @@ namespace DD2470_Clustered_Volume_Renderer
                     Graphics.SetVertexAttribute(TheVAO, 4, true, 3, VertexAttribType.Float, false, 0);
                     Graphics.SetVertexAttribute(TheVAO, 5, true, 3, VertexAttribType.Float, false, sizeof(Vector4));
 
-                    GL.UniformMatrix4(0, true, ref projectionMatrix);
-                    GL.UniformMatrix4(1, true, ref ident);
+                    GL.UniformMatrix4(0, true, ref mvp);
+                    GL.UniformMatrix4(1, true, ref model);
                     GL.UniformMatrix3(2, true, ref normal);
                     GL.UniformMatrix4(3, true, ref ident);
 

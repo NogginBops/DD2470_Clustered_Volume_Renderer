@@ -16,6 +16,7 @@ layout(std430, binding=0) writeonly buffer Clusters
 layout(std140, row_major, binding=1) uniform ProjectionData
 {
     mat4 u_InverseProjectionMatrix;
+    mat4 u_ViewMatrix;
     uvec3 u_GridSize;
     uvec2 u_ScreenDimentions;
     float u_zNear;
@@ -27,6 +28,14 @@ vec3 screenToView(vec4 screen)
     screen.xy = screen.xy / u_ScreenDimentions;
     screen.xy = screen.xy * 2 - 1;
     vec4 view = screen * u_InverseProjectionMatrix;
+    return view.xyz / view.w;
+}
+
+vec3 GridToView(vec2 grid)
+{
+    vec2 gridUV = grid.xy / u_GridSize.xy;
+    gridUV.xy = gridUV.xy * 2 - 1;
+    vec4 view = vec4(gridUV, -1.0, 1.0) * u_InverseProjectionMatrix;
     return view.xyz / view.w;
 }
 
@@ -56,40 +65,51 @@ vec3 GetCellPositionViewSpace(uvec3 gridCoordinate, vec3 cellOffset, out float v
     return GetViewPos(volumeUV, ndcDepth);
 }
 
-vec3 intersectZPlane(vec3 direction, float zPlane)
+vec3 IntersectZPlane(vec3 direction, float zPlane)
 {
     // Is it direction.z or -direction.z?
     return (zPlane / direction.z) * direction;
 }
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+vec3 lineIntersectionToZPlane(vec3 A, vec3 B, float zDistance){
+    //Because this is a Z based normal this is fixed
+    vec3 normal = vec3(0.0, 0.0, 1.0);
+
+    vec3 ab =  B - A;
+
+    //Computing the intersection length for the line and the plane
+    float t = (zDistance - dot(normal, A)) / dot(normal, ab);
+
+    //Computing the actual xyz position of the point along the line
+    vec3 result = A + t * ab;
+
+    return result;
+}
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 2) in;
 void main()
 {
-    uvec2 tileSizePx = u_ScreenDimentions / gl_NumWorkGroups.xy;
-    uint tileIndex = gl_WorkGroupID.x +
-                     gl_WorkGroupID.y * gl_NumWorkGroups.x +
-                     gl_WorkGroupID.z * (gl_NumWorkGroups.x * gl_NumWorkGroups.y);
+    if (any(greaterThanEqual(gl_GlobalInvocationID, u_GridSize)))
+        return;
 
-    float maxViewDepth = 0;
-    //vec3 maxPointView = GetCellPositionViewSpace(gl_WorkGroupID, vec3(1), maxViewDepth);
-    //vec3 minPointView = GetCellPositionViewSpace(gl_WorkGroupID, vec3(0), maxViewDepth);
+    uint tileIndex = gl_GlobalInvocationID.x +
+                     gl_GlobalInvocationID.y * u_GridSize.x +
+                     gl_GlobalInvocationID.z * (u_GridSize.x * u_GridSize.y);
 
-    // Top right
-    vec4 maxPointScreen = vec4(vec2(gl_WorkGroupID.x + 1, gl_WorkGroupID.y + 1) * tileSizePx, -1.0, 1.0);
-    // Bottom left
-    vec4 minPointScreen = vec4(gl_WorkGroupID.xy * tileSizePx, -1.0, 1.0);
+    vec2 maxPointGrid = vec2(gl_GlobalInvocationID.xy + uvec2(1, 1));
+    vec2 minPointGrid = vec2(gl_GlobalInvocationID.xy);
 
-    vec3 maxPointView = screenToView(maxPointScreen);
-    vec3 minPointView = screenToView(minPointScreen);
+    vec3 maxPointView = GridToView(maxPointGrid);
+    vec3 minPointView = GridToView(minPointGrid);
 
     //Near and far values of the cluster in view space
-    float tileNear  = -u_zNear * pow(u_zFar/ u_zNear, gl_WorkGroupID.z / float(gl_NumWorkGroups.z));
-    float tileFar   = -u_zNear * pow(u_zFar/ u_zNear, (gl_WorkGroupID.z + 1) / float(gl_NumWorkGroups.z));
+    float tileNear  = GetSliceDepth(gl_GlobalInvocationID.z);
+    float tileFar   = GetSliceDepth(gl_GlobalInvocationID.z + 1);
 
-    vec3 minPointNear = intersectZPlane(minPointView, tileNear);
-    vec3 minPointFar  = intersectZPlane(minPointView, tileFar);
-    vec3 maxPointNear = intersectZPlane(maxPointView, tileNear);
-    vec3 maxPointFar  = intersectZPlane(maxPointView, tileFar);
+    vec3 minPointNear = IntersectZPlane(minPointView, tileNear);
+    vec3 minPointFar  = IntersectZPlane(minPointView, tileFar);
+    vec3 maxPointNear = IntersectZPlane(maxPointView, tileNear);
+    vec3 maxPointFar  = IntersectZPlane(maxPointView, tileFar);
 
     // Convert the screen space points into
     vec3 minPointAABB = min(min(minPointNear, minPointFar), min(maxPointNear, maxPointFar));

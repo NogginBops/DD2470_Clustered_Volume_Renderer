@@ -122,7 +122,7 @@ void main()
     vec3 inscatter = vec3(0);
     for (uint i = 0; i < lightCount; i++)
     {
-        uint lightIndex = ssbo_lightIndexList[i];
+        uint lightIndex = ssbo_lightIndexList[lightOffset + i];
         PointLight light = ssbo_lights[lightIndex];
 
         vec3 incoming = vec3(0);
@@ -140,8 +140,8 @@ void main()
             float p = HenyeyGreenstein(cosTheta, emissionAndPhase.w);
 
             // Approximate optical depth to the light. This can be done much better!
-            float opticalDepth = min(exp(-sqrt(distanceSquare) * 0.055), 1.0);
-            opticalDepth = 1;
+            float opticalDepth = exp(-sqrt(distanceSquare) * 0.005);
+            //opticalDepth = 1;
 
             incoming += light.ColorAndSqrRadius.rgb * attenuation * opticalDepth * p;
         }

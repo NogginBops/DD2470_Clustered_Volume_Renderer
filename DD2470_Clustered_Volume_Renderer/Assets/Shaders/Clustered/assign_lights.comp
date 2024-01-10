@@ -3,6 +3,16 @@
 // FIXME: Make this something else
 layout(local_size_x = 16, local_size_y = 9, local_size_z = 4) in;
 
+layout(std140, row_major, binding=1) uniform ProjectionData
+{
+    mat4 u_InverseProjectionMatrix;
+    mat4 u_ViewMatrix;
+    uvec3 u_GridSize;
+    uvec2 u_ScreenDimentions;
+    float u_zNear;
+    float u_zFar;
+};
+
 // The clusters are AABBs in view space
 // so that they are aligned with the view direction.
 struct Cluster 
@@ -44,14 +54,23 @@ layout(std430, binding=3) writeonly buffer LightGrid
     LightGridCell ssbo_lightGrid[];
 };
 
+struct DebugData
+{
+    uint cluster;
+    uint light;
+    vec3 lightViewPos;
+    vec3 aabbMin;
+    vec3 aabbMax;
+    float distance;
+    float radius;
+};
+
 layout(std430, binding=4) buffer Debug
 {
-    float ssbo_gridLightDistance[];
+    DebugData ssbo_debugData[];
 };
 
 layout(binding = 0) uniform atomic_uint atomic_globalIndexCount;
-
-layout(location = 0) uniform mat4 viewMatrix;
 
 shared PointLight shared_Lights[gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z];
 
@@ -74,10 +93,18 @@ float squaredDistanceAABB(vec3 position, uint clusterIndex)
 bool testSphereAABBB(uint light, uint clusterIndex)
 {
     float invSqrRadius = shared_Lights[light].PositionAndInvSqrRadius.w;
-    vec3 center = vec3(vec4(shared_Lights[light].PositionAndInvSqrRadius.xyz, 1.0) * viewMatrix); 
-    float invSqrDist = 1 / squaredDistanceAABB(center, clusterIndex);
+    vec3 center = vec3(vec4(shared_Lights[light].PositionAndInvSqrRadius.xyz, 1.0) * u_ViewMatrix);
+    float squareDistance = squaredDistanceAABB(center, clusterIndex);
+    float invSqrDist = 1 / squareDistance;
 
-    ssbo_gridLightDistance[clusterIndex * 26 + light] = invSqrDist;
+    //ssbo_gridLightDistance[clusterIndex * 26 + light] = invSqrDist;
+    //ssbo_debugData[clusterIndex * ssbo_lights.length() + light].cluster = clusterIndex;
+    //ssbo_debugData[clusterIndex * ssbo_lights.length() + light].light = light;
+    //ssbo_debugData[clusterIndex * ssbo_lights.length() + light].lightViewPos = center;
+    //ssbo_debugData[clusterIndex * ssbo_lights.length() + light].aabbMin = ssbo_clusters[clusterIndex].Min.xyz;
+    //ssbo_debugData[clusterIndex * ssbo_lights.length() + light].aabbMax = ssbo_clusters[clusterIndex].Max.xyz;
+    //ssbo_debugData[clusterIndex * ssbo_lights.length() + light].distance = sqrt(squareDistance);
+    //ssbo_debugData[clusterIndex * ssbo_lights.length() + light].radius = sqrt(shared_Lights[light].ColorAndSqrRadius.w);
 
     return invSqrDist >= invSqrRadius;
 }
@@ -90,6 +117,14 @@ bool testSphereVsAABBB(vec3 sphereCenter, float squareRadius, vec3 aabbMin, vec3
 
     vec3 delta = max(abs(aabbCenter - sphereCenter) - aabbHalfSize, 0);
     float distanceSquare = dot(delta, delta);
+    return distanceSquare <= squareRadius;
+}
+
+bool testSphereVsAABBB2(vec3 sphereCenter, float squareRadius, vec3 aabbMin, vec3 aabbMax)
+{
+    vec3 closestPoint = max(min(sphereCenter, aabbMax), aabbMin);
+    vec3 diff = closestPoint - sphereCenter;
+    float distanceSquare = dot(diff, diff);
     return distanceSquare <= squareRadius;
 }
 
@@ -140,7 +175,7 @@ void main()
                 float squareRadius = shared_Lights[light].ColorAndSqrRadius.w;
                 Cluster cluster = ssbo_clusters[clusterIndex];
 
-                if (testSphereVsAABBB(lightPosition, squareRadius, cluster.Min.xyz, cluster.Max.xyz))
+                if (testSphereVsAABBB2(lightPosition, squareRadius, cluster.Min.xyz, cluster.Max.xyz))
                 {
                     visibleLightIndices[visibleLightCount] = batch * threadCount + light;
                     visibleLightCount++;
@@ -152,6 +187,8 @@ void main()
                 visibleLightIndices[visibleLightCount] = batch * threadCount + light;
                 visibleLightCount++;
             }
+            //visibleLightIndices[visibleLightCount] = batch * threadCount + light;
+            //visibleLightCount++;
         }
     }
 

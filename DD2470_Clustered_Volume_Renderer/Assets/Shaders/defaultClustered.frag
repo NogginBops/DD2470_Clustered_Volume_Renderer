@@ -165,8 +165,8 @@ vec3 ShadePointLight(Surface surface, PointLight light)
 
 	float NDF = DistributionGGX(surface.Normal, halfwayDirection, surface.Roughness);
 	float G   = GeometrySmith(surface.Normal, surface.ViewDirection, lightDirection, surface.Roughness);
-	vec3 F    = FresnelSchlick(max(dot(halfwayDirection, surface.ViewDirection), 0.0), surface.F0);
-
+	vec3 F    = FresnelSchlick(clamp(dot(halfwayDirection, surface.ViewDirection), 0.0, 1.0), surface.F0);
+	
 	vec3 kS = F;
 	vec3 kD = vec3(1.0) - kS;
 	kD *= 1.0 - surface.Metallic;
@@ -188,6 +188,51 @@ float linearDepth(float depthSample)
     return linear;
 }
 
+// https://gist.github.com/Fewes/59d2c831672040452aa77da6eaab2234
+vec4 tex3DTricubic(sampler3D tex, vec3 coord)
+{
+    vec3 texSize = textureSize(tex, 0);
+
+    // Shift the coordinate from [0,1] to [-0.5, texSize-0.5]
+    vec3 coord_grid = coord * texSize - 0.5;
+    vec3 index = floor(coord_grid);
+    vec3 fraction = coord_grid - index;
+    vec3 one_frac = 1.0 - fraction;
+
+    vec3 w0 = 1.0/6.0 * one_frac*one_frac*one_frac;
+    vec3 w1 = 2.0/3.0 - 0.5 * fraction*fraction*(2.0-fraction);
+    vec3 w2 = 2.0/3.0 - 0.5 * one_frac*one_frac*(2.0-one_frac);
+    vec3 w3 = 1.0/6.0 * fraction*fraction*fraction;
+
+    vec3 g0 = w0 + w1;
+    vec3 g1 = w2 + w3;
+    vec3 mult = 1.0 / texSize;
+    vec3 h0 = mult * ((w1 / g0) - 0.5 + index); //h0 = w1/g0 - 1, move from [-0.5, texSize-0.5] to [0,1]
+    vec3 h1 = mult * ((w3 / g1) + 1.5 + index); //h1 = w3/g1 + 1, move from [-0.5, texSize-0.5] to [0,1]
+
+    // Fetch the eight linear interpolations
+    // Weighting and fetching is interleaved for performance and stability reasons
+    vec4 tex000 = textureLod(tex, vec3(h0), 0);
+    vec4 tex100 = textureLod(tex, vec3(h1.x, h0.y, h0.z), 0);
+    tex000 = mix(tex100, tex000, g0.x); // Weigh along the x-direction
+
+    vec4 tex010 = textureLod(tex, vec3(h0.x, h1.y, h0.z), 0);
+    vec4 tex110 = textureLod(tex, vec3(h1.x, h1.y, h0.z), 0);
+    tex010 = mix(tex110, tex010, g0.x); // Weigh along the x-direction
+    tex000 = mix(tex010, tex000, g0.y); // Weigh along the y-direction
+
+    vec4 tex001 = textureLod(tex, vec3(h0.x, h0.y, h1.z), 0);
+    vec4 tex101 = textureLod(tex, vec3(h1.x, h0.y, h1.z), 0);
+    tex001 = mix(tex101, tex001, g0.x); // Weigh along the x-direction
+
+    vec4 tex011 = textureLod(tex, vec3(h0.x, h1.y, h1.z), 0);
+    vec4 tex111 = textureLod(tex, vec3(h1), 0);
+    tex011 = mix(tex111, tex011, g0.x); // Weigh along the x-direction
+    tex001 = mix(tex011, tex001, g0.y); // Weigh along the y-direction
+
+    return mix(tex001, tex000, g0.z); // Weigh along the z-direction
+}
+
 vec3 ShadeFogOutScatter(vec3 color)
 {
 	vec2 uv = gl_FragCoord.xy / u_ScreenSize;
@@ -195,8 +240,7 @@ vec3 ShadeFogOutScatter(vec3 color)
 	// FIXME: Why is this log2???
 	float zTile = max(log2(linearDepth(gl_FragCoord.z)) * (10*u_zScale) + (10*u_zBias), 0.0);
 
-	// FIXME: Possibly a cubic or quadratic interpolation here...
-	vec4 outScatterAndTransmittance = texture(tex_FogVolume, vec3(uv, zTile / 240.0));
+	vec4 outScatterAndTransmittance = tex3DTricubic(tex_FogVolume, vec3(uv, zTile / 240.0));
 
 	//return vec3(uv, zTile / 240.0);
 	return color * outScatterAndTransmittance.aaa + outScatterAndTransmittance.rgb;
@@ -231,7 +275,7 @@ void main()
 	// FIXME: At the moment we have roughtness in the G channel and metallic in the B channel
 	// we might want to use or remove the first channel...?
 	vec2 roughnessMetallic = texture(tex_RoughnessMetallic, v_uv0).yz;
-	surface.Roughness = clamp(roughnessMetallic.x, 0.0, 1.0);
+	surface.Roughness = clamp(roughnessMetallic.x, 0.04, 1.0);
 	surface.Metallic = clamp(roughnessMetallic.y, 0.0, 1.0);
 	surface.F0 = mix(vec3(0.04), surface.Albedo, surface.Metallic);
 
@@ -240,7 +284,7 @@ void main()
 	
 	// FIXME: Why is this log2?
 	uint zTile = uint(max(log2(linearDepth(gl_FragCoord.z)) * u_zScale + u_zBias, 0.0));
-	uvec3 tile = uvec3(gl_FragCoord.xy / vec2(1600/16, 900/9), zTile);
+	uvec3 tile = uvec3(gl_FragCoord.xy / (u_ScreenSize.xy/u_ClusterCount.xy), zTile);
 	uint tileIndex = tile.x + u_ClusterCount.x * tile.y + (u_ClusterCount.x * u_ClusterCount.y) * tile.z;
 	
 	uint lightCount = ssbo_lightGrid[tileIndex].Count;
