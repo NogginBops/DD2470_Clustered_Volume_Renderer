@@ -72,7 +72,7 @@ namespace DD2470_Clustered_Volume_Renderer
             {
                 writer.WriteLine($"#{config.Name}");
                 writer.WriteLine($"{config.CameraPosition.X} {config.CameraPosition.Y} {config.CameraPosition.Z}");
-                writer.WriteLine($"{config.CameraRotation.X} {config.CameraRotation.X}");
+                writer.WriteLine($"{config.CameraRotation.X} {config.CameraRotation.Y}");
                 writer.WriteLine($"{config.Near} {config.Far} {config.Fov}");
                 writer.WriteLine();
             }
