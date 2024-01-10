@@ -580,7 +580,7 @@ namespace DD2470_Clustered_Volume_Renderer
                                     EditingLightConfigName = true;
                                 }
                             }
-                            else if (ImGui.Selectable(LightConfigs[i].Name, is_selected, ImGuiSelectableFlags.AllowDoubleClick | ImGuiSelectableFlags.AllowOverlap))
+                            else if (ImGui.Selectable($"{LightConfigs[i].Name} ({LightConfigs[i].Lights.Count} lights)", is_selected, ImGuiSelectableFlags.AllowDoubleClick | ImGuiSelectableFlags.AllowOverlap))
                             {
                                 if (ImGui.IsMouseDoubleClicked(0)) EditingLightConfigName = true;
                                 else EditingLightConfigName = false;
@@ -779,7 +779,7 @@ namespace DD2470_Clustered_Volume_Renderer
                 }
             }
 
-            Title = $"{args.Time*1000:0.000}ms ({1/args.Time:0.00} fps)";
+            Title = $"{FramebufferSize.X}x{FramebufferSize.Y} {args.Time*1000:0.000}ms ({1/args.Time:0.00} fps)";
         }
 
         // How do I want to represent entity draw data?
