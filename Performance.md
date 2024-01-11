@@ -86,3 +86,20 @@ Frame time: 13.71ms
 Depth pre pass: 1.61ms
 Volume pass: 4.38ms
 Color pass: 4.19ms
+
+# Overhead - 400 random lights (401 lights) - Clustered
+
+Frame time: 46.87ms
+
+Depth pre pass: 0.66ms
+Cluster pass: 0.38ms
+Volume pass: 2.72ms
+Color pass: 42.47ms
+
+# Overhead - 400 random lights (401 lights) - Forward
+
+Frame time: 76.25ms
+
+Depth pre pass: 0.63ms
+Volume pass: 32.18ms
+Color pass: 42.80ms
