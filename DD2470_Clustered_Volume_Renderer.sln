@@ -5,8 +5,6 @@ VisualStudioVersion = 17.7.34221.43
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DD2470_Clustered_Volume_Renderer", "DD2470_Clustered_Volume_Renderer\DD2470_Clustered_Volume_Renderer.csproj", "{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AssetProcessor", "AssetProcessor\AssetProcessor.csproj", "{DBDA8350-8E4D-40C9-817C-C1271F288B14}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{8BA81007-78B8-412A-ABB6-6D2B250A333B}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
@@ -30,14 +28,6 @@ Global
 		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Release|Any CPU.Build.0 = Release|x64
 		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Release|x64.ActiveCfg = Release|x64
 		{6E4330BB-5E87-468A-8DA0-D96E0DA6C4E7}.Release|x64.Build.0 = Release|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|Any CPU.ActiveCfg = Debug|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|Any CPU.Build.0 = Debug|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|x64.ActiveCfg = Debug|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Debug|x64.Build.0 = Debug|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|Any CPU.ActiveCfg = Release|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|Any CPU.Build.0 = Release|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|x64.ActiveCfg = Release|x64
-		{DBDA8350-8E4D-40C9-817C-C1271F288B14}.Release|x64.Build.0 = Release|x64
 		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D9D1F50D-2ACD-4B76-8FB8-127D286D1E2A}.Debug|x64.ActiveCfg = Debug|Any CPU

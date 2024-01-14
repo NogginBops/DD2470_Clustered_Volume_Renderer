@@ -1,0 +1,2 @@
+# Temple
+These files are exported from the blender [demo file](https://download.blender.org/demo/eevee/temple/README.txt) by [Dominik Graf](http://www.artstation.com/artist/dommigraf) and is licensed under the CC-BY-SA license.

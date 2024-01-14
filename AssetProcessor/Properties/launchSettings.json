@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "AssetProcessor": {
-      "commandName": "Project",
-      "nativeDebugging": true
-    }
-  }
-}
