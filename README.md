@@ -1,8 +1,8 @@
 # DD2470_Clustered_Volume_Renderer
 
-![img](img/Volumetric4.PNG)
+![Temple surrounded by many point lights in fog.](img/Volumetric4.PNG)
 
-This is my project for the [KTH](kth.se) course DD2470 Advanced Topics in Visualization and Computer Graphics. My goal for the project was a performance comparison between forward shading and clustered forward shading for volumetric fog. Mostly an excuse for me to implement and learn clustered shading and volumetric fog rendering.
+This is my project for the [KTH](https://kth.se) course DD2470 Advanced Topics in Visualization and Computer Graphics. My goal for the project was a performance comparison between forward shading and clustered forward shading for volumetric fog. Mostly an excuse for me to implement and learn clustered shading and volumetric fog rendering.
 
 It implements volumetric fog in a similar way as what is described by Bart Wronski in his [SIGGRAPH 2014 presentation](https://bartwronski.files.wordpress.com/2014/08/bwronski_volumetric_fog_siggraph2014.pdf) as well as using ideas from Sebastien Hillaires [SIGGRAPH 2015 presenation](https://www.ea.com/frostbite/news/physically-based-unified-volumetric-rendering-in-frostbite) on the same topic.
 
@@ -17,6 +17,6 @@ The assets that are a part of this repo is uploaded to GitHubs git lfs service w
 
 # Gallery
 
-![](img/Volumetric.PNG)
-![](img/Volumetric3.PNG)
-![](img/Volumetric4.PNG)
+![Three temples on a hill side fading into height fog.](img/Volumetric.PNG)
+![Three temples lit in red, green, and blue showing a volumetric glow.](img/Volumetric3.PNG)
+![Temple surrounded by many point lights in fog.](img/Volumetric4.PNG)
